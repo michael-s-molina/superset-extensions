@@ -4,4 +4,4 @@ A collection of extensions for [Apache Superset](https://superset.apache.org/) t
 
 ## License
 
-MIT
+Distributed under the MIT License. See `LICENSE` for more information.
