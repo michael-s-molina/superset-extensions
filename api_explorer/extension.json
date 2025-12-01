@@ -1,0 +1,22 @@
+{
+  "id": "api_explorer",
+  "name": "Extensions API Explorer",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "frontend": {
+    "contributions": {
+      "views": {
+        "sqllab.panels": [
+          {
+            "id": "api_explorer.apiExplorer",
+            "name": "API Explorer"
+          }
+        ]
+      }
+    },
+    "moduleFederation": {
+      "exposes": ["./index"]
+    }
+  },
+  "permissions": []
+}

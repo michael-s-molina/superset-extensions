@@ -1,0 +1,26 @@
+{
+  "id": "query_insights",
+  "name": "Query Insights",
+  "version": "1.0.0",
+  "frontend": {
+    "contributions": {
+      "views": {
+        "sqllab.panels": [
+          {
+            "id": "query_insights.main",
+            "name": "Query Insights"
+          }
+        ]
+      }
+    },
+    "moduleFederation": {
+      "exposes": ["./index"]
+    }
+  },
+  "backend": {
+    "entryPoints": ["query_insights.entrypoint"],
+    "files": ["backend/src/query_insights/**/*.py"]
+  },
+  "dependencies": [],
+  "permissions": ["can_read", "can_view"]
+}
