@@ -1,8 +1,8 @@
 # Dependencies
 node_modules/
 
-# Build outputs (keeping dist for distribution)
-# dist/
+# Build outputs
+dist/
 
 # Python
 __pycache__/
