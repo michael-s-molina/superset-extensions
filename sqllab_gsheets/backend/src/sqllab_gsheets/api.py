@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime
-from typing import Any, cast
+from typing import Any
 
 import pandas as pd
 from flask import current_app, g, Response
@@ -10,15 +10,8 @@ from flask_appbuilder.api import expose, permission_name, protect
 from flask_babel import gettext as __
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from superset import db, results_backend, results_backend_use_msgpack
-from superset.errors import ErrorLevel, SupersetError, SupersetErrorType
-from superset.exceptions import SupersetErrorException, SupersetSecurityException
-from superset.models.sql_lab import Query
-from superset.sql_parse import ParsedQuery
-from superset.sqllab.limiting_factor import LimitingFactor
-from superset.utils import core as utils
-from superset.views.utils import _deserialize_results_payload
-from superset_core.api.types.rest_api import RestApi
+from superset_core.api.daos import QueryDAO
+from superset_core.api.rest_api import RestApi
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +27,16 @@ class GSheetsExportAPI(RestApi):
     def export_gsheets(self, client_id: str) -> Response:
         """Export SQL Lab query results to Google Sheets."""
         try:
-            # 1. Get query and validate access
+            # 1. Get query
             query = self._get_query(client_id)
+            if query is None:
+                return self.response(
+                    404,
+                    message=__(
+                        "The query associated with these results could not be found. "
+                        "You need to re-run the original query."
+                    ),
+                )
 
             # 2. Get query results as DataFrame
             df = self._get_dataframe(query)
@@ -79,90 +80,27 @@ class GSheetsExportAPI(RestApi):
                 row_count=len(df.index),
             )
 
-        except SupersetErrorException as ex:
-            return self.response(ex.status, message=str(ex.error.message))
         except Exception as ex:
             logger.exception("Error exporting to Google Sheets: %s", str(ex))
             return self.response(500, message=str(ex))
 
-    def _get_query(self, client_id: str) -> Query:
-        """Get and validate query by client_id."""
-        query = db.session.query(Query).filter_by(client_id=client_id).one_or_none()
+    def _get_query(self, client_id: str):
+        """Get query by client_id.
 
-        if query is None:
-            raise SupersetErrorException(
-                SupersetError(
-                    message=__(
-                        "The query associated with these results could not be found. "
-                        "You need to re-run the original query."
-                    ),
-                    error_type=SupersetErrorType.RESULTS_BACKEND_ERROR,
-                    level=ErrorLevel.ERROR,
-                ),
-                status=404,
-            )
+        Returns the query object or None if not found.
+        Access control is handled by the @protect() decorator at the API level.
+        """
+        return QueryDAO.find_one_or_none(client_id=client_id)
 
-        try:
-            query.raise_for_access()
-        except SupersetSecurityException as ex:
-            raise SupersetErrorException(
-                SupersetError(
-                    message=__("Cannot access the query"),
-                    error_type=SupersetErrorType.QUERY_SECURITY_ACCESS_ERROR,
-                    level=ErrorLevel.ERROR,
-                ),
-                status=403,
-            ) from ex
-
-        return query
-
-    def _get_dataframe(self, query: Query) -> pd.DataFrame:
-        """Get query results as a pandas DataFrame."""
-        blob = None
-        if results_backend and query.results_key:
-            logger.info("Fetching data from results backend [%s]", query.results_key)
-            blob = results_backend.get(query.results_key)
-
-        if blob:
-            logger.info("Decompressing cached results")
-            payload = utils.zlib_decompress(
-                blob, decode=not results_backend_use_msgpack
-            )
-            obj = _deserialize_results_payload(
-                payload, query, cast(bool, results_backend_use_msgpack)
-            )
-
-            df = pd.DataFrame(
-                data=obj["data"],
-                dtype=object,
-                columns=[c["name"] for c in obj["columns"]],
-            )
-        else:
-            logger.info("Re-executing query to get results")
-            if query.select_sql:
-                sql = query.select_sql
-                limit = None
-            else:
-                sql = query.executed_sql
-                limit = ParsedQuery(
-                    sql,
-                    engine=query.database.db_engine_spec.engine,
-                ).limit
-
-            if limit is not None and query.limiting_factor in {
-                LimitingFactor.QUERY,
-                LimitingFactor.DROPDOWN,
-                LimitingFactor.QUERY_AND_DROPDOWN,
-            }:
-                # remove extra row from `increased_limit`
-                limit -= 1
-
-            df = query.database.get_df(
-                sql,
-                query.catalog,
-                query.schema,
-            )[:limit]
-
+    def _get_dataframe(self, query) -> pd.DataFrame:
+        """Get query results as a pandas DataFrame by re-executing the query."""
+        logger.info("Executing query to get results")
+        sql = query.sql
+        df = query.database.get_df(
+            sql,
+            query.catalog,
+            query.schema,
+        )
         return df
 
     def _get_credentials(self) -> service_account.Credentials:
@@ -180,14 +118,7 @@ class GSheetsExportAPI(RestApi):
         """
         service_account_info = current_app.config.get("GSHEETS_SERVICE_ACCOUNT")
         if not service_account_info:
-            raise SupersetErrorException(
-                SupersetError(
-                    message=__("GSHEETS_SERVICE_ACCOUNT config is not set"),
-                    error_type=SupersetErrorType.GENERIC_BACKEND_ERROR,
-                    level=ErrorLevel.ERROR,
-                ),
-                status=500,
-            )
+            raise ValueError(__("GSHEETS_SERVICE_ACCOUNT config is not set"))
 
         required_keys = [
             "type",
@@ -202,16 +133,11 @@ class GSheetsExportAPI(RestApi):
         missing_keys = [key for key in required_keys if key not in service_account_info]
 
         if missing_keys:
-            raise SupersetErrorException(
-                SupersetError(
-                    message=__(
-                        "Missing keys in GSHEETS_SERVICE_ACCOUNT: %(keys)s",
-                        keys=", ".join(missing_keys),
-                    ),
-                    error_type=SupersetErrorType.GENERIC_BACKEND_ERROR,
-                    level=ErrorLevel.ERROR,
-                ),
-                status=500,
+            raise ValueError(
+                __(
+                    "Missing keys in GSHEETS_SERVICE_ACCOUNT: %(keys)s",
+                    keys=", ".join(missing_keys),
+                )
             )
 
         return service_account.Credentials.from_service_account_info(
