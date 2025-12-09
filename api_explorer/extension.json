@@ -6,7 +6,7 @@
   "frontend": {
     "contributions": {
       "views": {
-        "sqllab.panels": [
+        "sqllab.rightSidebar": [
           {
             "id": "api_explorer.apiExplorer",
             "name": "API Explorer"
