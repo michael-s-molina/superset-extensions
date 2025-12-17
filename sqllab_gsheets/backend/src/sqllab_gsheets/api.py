@@ -5,13 +5,14 @@ from datetime import date, datetime
 from typing import Any
 
 import pandas as pd
-from flask import current_app, g, Response
+from flask import current_app, g, request, Response
 from flask_appbuilder.api import expose, permission_name, protect
 from flask_babel import gettext as __
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from superset_core.api.daos import QueryDAO
+from superset_core.api.daos import DatabaseDAO
 from superset_core.api.rest_api import RestApi
+from superset_core.api.types import QueryOptions, QueryStatus
 
 logger = logging.getLogger(__name__)
 
@@ -21,30 +22,44 @@ class GSheetsExportAPI(RestApi):
     openapi_spec_tag = "SQL Lab Google Sheets Export"
     class_permission_name = "sqllab_gsheets"
 
-    @expose("/export/<string:client_id>/", methods=("GET",))
+    @expose("/export/", methods=("POST",))
     @protect()
     @permission_name("read")
-    def export_gsheets(self, client_id: str) -> Response:
-        """Export SQL Lab query results to Google Sheets."""
+    def export_gsheets(self) -> Response:
+        """Export SQL query results to Google Sheets.
+
+        Request body:
+            sql: SQL query to execute
+            databaseId: Database ID to execute against
+            catalog: Optional catalog name
+            schema: Optional schema name
+        """
         try:
-            # 1. Get query
-            query = self._get_query(client_id)
-            if query is None:
-                return self.response(
-                    404,
-                    message=__(
-                        "The query associated with these results could not be found. "
-                        "You need to re-run the original query."
-                    ),
-                )
+            # 1. Parse request body
+            body = request.json or {}
+            sql = body.get("sql")
+            database_id = body.get("databaseId")
+            catalog = body.get("catalog")
+            schema = body.get("schema")
 
-            # 2. Get query results as DataFrame
-            df = self._get_dataframe(query)
+            if not sql:
+                return self.response(400, message=__("SQL query is required"))
 
-            # 3. Get Google Sheets credentials
+            if not database_id:
+                return self.response(400, message=__("Database ID is required"))
+
+            # 2. Get database
+            database = DatabaseDAO.find_one_or_none(id=database_id)
+            if database is None:
+                return self.response(404, message=__("Database not found"))
+
+            # 3. Execute query
+            df = self._execute_query(database, sql, catalog, schema)
+
+            # 4. Get Google Sheets credentials
             creds = self._get_credentials()
 
-            # 4. Create new spreadsheet
+            # 5. Create new spreadsheet
             service = build("sheets", "v4", credentials=creds)
             title = f"SQL_Export_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
@@ -56,7 +71,7 @@ class GSheetsExportAPI(RestApi):
             spreadsheet_id = spreadsheet["spreadsheetId"]
             spreadsheet_url = spreadsheet["spreadsheetUrl"]
 
-            # 5. Write data to spreadsheet
+            # 6. Write data to spreadsheet
             values = self._dataframe_to_values(df)
             service.spreadsheets().values().update(
                 spreadsheetId=spreadsheet_id,
@@ -65,7 +80,7 @@ class GSheetsExportAPI(RestApi):
                 body={"values": values},
             ).execute()
 
-            # 6. Share spreadsheet with current user
+            # 7. Share spreadsheet with current user
             self._share_with_user(creds, spreadsheet_id)
 
             logger.info(
@@ -84,24 +99,30 @@ class GSheetsExportAPI(RestApi):
             logger.exception("Error exporting to Google Sheets: %s", str(ex))
             return self.response(500, message=str(ex))
 
-    def _get_query(self, client_id: str):
-        """Get query by client_id.
+    def _execute_query(
+        self,
+        database: Any,
+        sql: str,
+        catalog: str | None,
+        schema: str | None,
+    ) -> pd.DataFrame:
+        """Execute query and return results as DataFrame."""
+        logger.info("Executing query on database %s", database.id)
 
-        Returns the query object or None if not found.
-        Access control is handled by the @protect() decorator at the API level.
-        """
-        return QueryDAO.find_one_or_none(client_id=client_id)
-
-    def _get_dataframe(self, query) -> pd.DataFrame:
-        """Get query results as a pandas DataFrame by re-executing the query."""
-        logger.info("Executing query to get results")
-        sql = query.sql
-        df = query.database.get_df(
-            sql,
-            query.catalog,
-            query.schema,
+        options = QueryOptions(
+            catalog=catalog,
+            schema=schema,
         )
-        return df
+
+        result = database.execute(sql, options)
+
+        if result.status != QueryStatus.SUCCESS:
+            raise ValueError(result.error_message or "Query execution failed")
+
+        if not result.statements or result.statements[0].data is None:
+            return pd.DataFrame()
+
+        return result.statements[0].data
 
     def _get_credentials(self) -> service_account.Credentials:
         """Load Google service account credentials from Superset config.

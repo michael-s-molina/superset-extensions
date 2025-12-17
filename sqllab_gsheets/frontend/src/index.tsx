@@ -1,25 +1,7 @@
 import { core, sqlLab, commands, authentication } from '@apache-superset/core';
 import { message } from 'antd';
 
-// Track last successful query's clientId per tab (tabId -> clientId)
-const tabClientIds = new Map<string, string>();
-
 export const activate = (_context: core.ExtensionContext) => {
-  // Listen for successful queries and store the clientId per tab
-  sqlLab.onDidQuerySuccess((queryResult: sqlLab.QueryResultContext) => {
-    tabClientIds.set(queryResult.tab.id, queryResult.clientId);
-  });
-
-  // Clean up when tab is closed
-  // Note: onDidCloseTab may not be implemented yet, so we wrap in try-catch
-  try {
-    sqlLab.onDidCloseTab((tab: sqlLab.Tab) => {
-      tabClientIds.delete(tab.id);
-    });
-  } catch {
-    // onDidCloseTab not implemented - tab cleanup won't happen but export still works
-  }
-
   // Register the export command
   commands.registerCommand('sqllab_gsheets.export', async () => {
     const currentTab = sqlLab.getCurrentTab();
@@ -29,10 +11,16 @@ export const activate = (_context: core.ExtensionContext) => {
       return;
     }
 
-    const clientId = tabClientIds.get(currentTab.id);
+    const { editor } = currentTab;
+    const sql = editor.content?.trim();
 
-    if (!clientId) {
-      message.warning('No query results to export. Please run a query first.');
+    if (!sql) {
+      message.warning('No SQL query to export. Please write a query first.');
+      return;
+    }
+
+    if (!editor.databaseId) {
+      message.warning('No database selected. Please select a database first.');
       return;
     }
 
@@ -41,15 +29,19 @@ export const activate = (_context: core.ExtensionContext) => {
     try {
       const csrfToken = await authentication.getCSRFToken();
 
-      const response = await fetch(
-        `/extensions/sqllab_gsheets/export/${clientId}/`,
-        {
-          method: 'GET',
-          headers: {
-            'X-CSRFToken': csrfToken!,
-          },
-        }
-      );
+      const response = await fetch('/extensions/sqllab_gsheets/export/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': csrfToken!,
+        },
+        body: JSON.stringify({
+          sql: editor.content,
+          databaseId: editor.databaseId,
+          catalog: editor.catalog,
+          schema: editor.schema,
+        }),
+      });
 
       hideLoading();
 
