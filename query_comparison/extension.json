@@ -1,0 +1,30 @@
+{
+  "id": "query_comparison",
+  "name": "Query Comparison",
+  "version": "1.0.0",
+  "license": "Apache-2.0",
+  "frontend": {
+    "contributions": {
+      "commands": [
+        {
+          "command": "query_comparison.compare",
+          "title": "Compare Results"
+        }
+      ],
+      "menus": {
+        "sqllab.editor": {
+          "secondary": [
+            {
+              "view": "builtin.editor",
+              "command": "query_comparison.compare"
+            }
+          ]
+        }
+      }
+    },
+    "moduleFederation": {
+      "exposes": ["./index"]
+    }
+  },
+  "permissions": []
+}
