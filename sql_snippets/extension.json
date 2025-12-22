@@ -1,0 +1,30 @@
+{
+  "id": "sql_snippets",
+  "name": "SQL Snippets",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "frontend": {
+    "contributions": {
+      "commands": [
+        {
+          "command": "sql_snippets.open",
+          "title": "SQL Snippets"
+        }
+      ],
+      "menus": {
+        "sqllab.editor": {
+          "secondary": [
+            {
+              "view": "builtin.editor",
+              "command": "sql_snippets.open"
+            }
+          ]
+        }
+      }
+    },
+    "moduleFederation": {
+      "exposes": ["./index"]
+    }
+  },
+  "permissions": []
+}
