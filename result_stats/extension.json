@@ -1,0 +1,22 @@
+{
+  "id": "result_stats",
+  "name": "Result Stats",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "frontend": {
+    "contributions": {
+      "views": {
+        "sqllab.panels": [
+          {
+            "id": "result_stats.main",
+            "name": "Result Stats"
+          }
+        ]
+      }
+    },
+    "moduleFederation": {
+      "exposes": ["./index"]
+    }
+  },
+  "permissions": []
+}
