@@ -3,8 +3,6 @@ import { core, commands, sqlLab } from "@apache-superset/core";
 import { APIExplorer, setLastInteraction } from "./APIExplorer";
 
 export const activate = (context: core.ExtensionContext) => {
-  console.log("[API Explorer] Activating...");
-
   // Register the API Explorer panel view
   context.disposables.push(
     core.registerViewProvider("api_explorer.apiExplorer", () => <APIExplorer />)
@@ -79,10 +77,6 @@ export const activate = (context: core.ExtensionContext) => {
       }
     })
   );
-
-  console.log("[API Explorer] Activated successfully");
 };
 
-export const deactivate = () => {
-  console.log("[API Explorer] Deactivated");
-};
+export const deactivate = () => {};

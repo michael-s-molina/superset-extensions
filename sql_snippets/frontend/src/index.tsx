@@ -71,21 +71,15 @@ function showSnippetsModal() {
 }
 
 export const activate = (context: core.ExtensionContext) => {
-  console.log('[SQL Snippets] Activating...');
-
   // Register the open snippets command
   context.disposables.push(
     commands.registerCommand('sql_snippets.open', async () => {
       showSnippetsModal();
     }),
   );
-
-  console.log('[SQL Snippets] Activated successfully');
 };
 
 export const deactivate = () => {
-  console.log('[SQL Snippets] Deactivating...');
-
   // Clean up modal container
   if (modalContainer) {
     ReactDOM.unmountComponentAtNode(modalContainer);
