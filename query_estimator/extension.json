@@ -1,0 +1,26 @@
+{
+  "id": "query_estimator",
+  "name": "Query Estimator",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "frontend": {
+    "contributions": {
+      "views": {
+        "sqllab.panels": [
+          {
+            "id": "query_estimator.main",
+            "name": "Query Estimator"
+          }
+        ]
+      }
+    },
+    "moduleFederation": {
+      "exposes": ["./index"]
+    }
+  },
+  "backend": {
+    "entryPoints": ["query_estimator.entrypoint"],
+    "files": ["backend/src/query_estimator/**/*.py"]
+  },
+  "permissions": ["can_read", "can_view"]
+}
