@@ -98,10 +98,14 @@ export function compareResults(
 ): CompareResult {
   const schemaChanges = compareSchemas(left.columns, right.columns);
 
-  // Get common columns for comparison
+  // Get all columns from both sides for comparison
   const leftColNames = new Set(left.columns.map((c) => c.column_name));
   const rightColNames = new Set(right.columns.map((c) => c.column_name));
+  const allColumns = [...new Set([...leftColNames, ...rightColNames])];
   const commonColumns = [...leftColNames].filter((c) => rightColNames.has(c));
+
+  // If schemas are completely different (no common columns), treat all rows as different
+  const schemasCompletelyDifferent = commonColumns.length === 0 && allColumns.length > 0;
 
   const rowDiffs: RowDiff[] = [];
   const maxRows = Math.max(left.data.length, right.data.length);
@@ -133,19 +137,31 @@ export function compareResults(
       removedRows++;
     } else if (leftRow && rightRow) {
       // Both exist, check for modifications
-      const { equal, changedColumns } = rowsEqual(leftRow, rightRow, commonColumns);
-
-      if (!equal) {
+      // If schemas are completely different, all rows are considered modified
+      if (schemasCompletelyDifferent) {
         rowDiffs.push({
           rowIndex: i,
           type: 'modified',
           leftRow,
           rightRow,
-          changedColumns,
+          changedColumns: allColumns,
         });
         modifiedRows++;
       } else {
-        unchangedRows++;
+        const { equal, changedColumns } = rowsEqual(leftRow, rightRow, commonColumns);
+
+        if (!equal) {
+          rowDiffs.push({
+            rowIndex: i,
+            type: 'modified',
+            leftRow,
+            rightRow,
+            changedColumns,
+          });
+          modifiedRows++;
+        } else {
+          unchangedRows++;
+        }
       }
     }
   }
