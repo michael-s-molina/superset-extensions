@@ -1,10 +1,11 @@
-import React, { useEffect, useReducer } from 'react';
+import React, { useEffect, useReducer, useRef } from 'react';
 import { Alert, Spin } from 'antd';
 import { authentication, sqlLab } from '@apache-superset/core';
 import Table from './Table';
 import { TableMetadata, QueryState, QueryAction } from './types';
 
 const SUPPORTED_DATABASE_IDS = [1];
+const PANEL_ID = 'query_insights.main';
 
 const formatErrorMessage = (message: string): string => {
   const jsonDetailMatch = message.match(/Query insight service error: ({.*})/);
@@ -56,7 +57,25 @@ const fetchQueryInsights = async (
   return data.result?.tables || [];
 };
 
-const queryReducer = (state: QueryState, action: QueryAction): QueryState => {
+interface PendingQuery {
+  content: string;
+  databaseId: number;
+  schema: string;
+}
+
+interface ExtendedQueryState extends QueryState {
+  pendingQuery: PendingQuery | null;
+}
+
+type ExtendedQueryAction =
+  | QueryAction
+  | { type: 'SET_PENDING_QUERY'; payload: PendingQuery }
+  | { type: 'CLEAR_PENDING_QUERY' };
+
+const queryReducer = (
+  state: ExtendedQueryState,
+  action: ExtendedQueryAction,
+): ExtendedQueryState => {
   switch (action.type) {
     case 'QUERY_START':
       return {
@@ -71,6 +90,7 @@ const queryReducer = (state: QueryState, action: QueryAction): QueryState => {
         metadata: action.payload,
         errorState: null,
         loading: false,
+        pendingQuery: null,
       };
     case 'QUERY_FAIL':
       return {
@@ -78,6 +98,7 @@ const queryReducer = (state: QueryState, action: QueryAction): QueryState => {
         metadata: [],
         errorState: action.payload,
         loading: false,
+        pendingQuery: null,
       };
     case 'DATABASE_CHANGED':
       return {
@@ -85,21 +106,74 @@ const queryReducer = (state: QueryState, action: QueryAction): QueryState => {
         errorState: null,
         loading: false,
         databaseId: action.payload,
+        pendingQuery: null,
+      };
+    case 'SET_PENDING_QUERY':
+      return {
+        ...state,
+        pendingQuery: action.payload,
+      };
+    case 'CLEAR_PENDING_QUERY':
+      return {
+        ...state,
+        pendingQuery: null,
       };
     default:
       return state;
   }
 };
 
-const initialQueryState: QueryState = {
+const initialQueryState: ExtendedQueryState = {
   metadata: [],
   errorState: null,
   loading: false,
   databaseId: null,
+  pendingQuery: null,
 };
 
 const Main: React.FC = () => {
   const [state, dispatch] = useReducer(queryReducer, initialQueryState);
+  const [isPanelActive, setIsPanelActive] = React.useState(false);
+  const isPanelActiveRef = useRef(false);
+
+  // Check if this panel is the active one
+  const checkPanelActive = (): boolean => {
+    const activePanel = sqlLab.getActivePanel();
+    return activePanel.id === PANEL_ID;
+  };
+
+  // Fetch query insights helper
+  const fetchAndDispatchInsights = async (
+    content: string,
+    databaseId: number,
+    schema: string,
+  ) => {
+    dispatch({ type: 'QUERY_START' });
+    try {
+      const metadata = await fetchQueryInsights(content, databaseId, schema);
+      dispatch({
+        type: 'QUERY_SUCCESS',
+        payload: metadata,
+      });
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error
+          ? err.message
+          : 'An unexpected error occurred while fetching query insights';
+      dispatch({ type: 'QUERY_FAIL', payload: errorMessage });
+    }
+  };
+
+  // Effect to process pending queries when panel becomes active
+  useEffect(() => {
+    if (isPanelActive && state.pendingQuery) {
+      fetchAndDispatchInsights(
+        state.pendingQuery.content,
+        state.pendingQuery.databaseId,
+        state.pendingQuery.schema,
+      );
+    }
+  }, [isPanelActive, state.pendingQuery]);
 
   useEffect(() => {
     const currentTab = sqlLab.getCurrentTab();
@@ -110,6 +184,11 @@ const Main: React.FC = () => {
       });
     }
 
+    // Initialize panel active state
+    const initialActive = checkPanelActive();
+    isPanelActiveRef.current = initialActive;
+    setIsPanelActive(initialActive);
+
     const queryRun = sqlLab.onDidQueryRun(
       (queryContext: sqlLab.QueryContext) => {
         const { editor } = queryContext.tab;
@@ -119,7 +198,10 @@ const Main: React.FC = () => {
           return;
         }
 
-        dispatch({ type: 'QUERY_START' });
+        // Only show loading state if panel is active
+        if (isPanelActiveRef.current) {
+          dispatch({ type: 'QUERY_START' });
+        }
       },
     );
 
@@ -127,27 +209,28 @@ const Main: React.FC = () => {
       async (queryContext: sqlLab.QueryContext) => {
         const { editor } = queryContext.tab;
 
-        // Only fetch metadata if the database is supported
+        // Only process if the database is supported
         if (!SUPPORTED_DATABASE_IDS.includes(editor.databaseId)) {
           return;
         }
 
-        try {
-          const metadata = await fetchQueryInsights(
+        if (isPanelActiveRef.current) {
+          // Panel is active, fetch insights immediately
+          await fetchAndDispatchInsights(
             editor.content,
             editor.databaseId,
             editor.schema,
           );
+        } else {
+          // Panel is inactive, store the query for later processing
           dispatch({
-            type: 'QUERY_SUCCESS',
-            payload: metadata,
+            type: 'SET_PENDING_QUERY',
+            payload: {
+              content: editor.content,
+              databaseId: editor.databaseId,
+              schema: editor.schema,
+            },
           });
-        } catch (err) {
-          const errorMessage =
-            err instanceof Error
-              ? err.message
-              : 'An unexpected error occurred while fetching query insights';
-          dispatch({ type: 'QUERY_FAIL', payload: errorMessage });
         }
       },
     );
@@ -161,6 +244,9 @@ const Main: React.FC = () => {
           return;
         }
 
+        // Always dispatch QUERY_FAIL to stop loading state, since Superset
+        // switches to the Results panel when a query runs, making the panel
+        // inactive even if it was active when the query started
         dispatch({
           type: 'QUERY_FAIL',
           payload:
@@ -173,11 +259,19 @@ const Main: React.FC = () => {
       dispatch({ type: 'DATABASE_CHANGED', payload: dbId });
     });
 
+    // Listen for panel changes to update active state
+    const panelChanged = sqlLab.onDidChangeActivePanel(panel => {
+      const isNowActive = panel.id === PANEL_ID;
+      isPanelActiveRef.current = isNowActive;
+      setIsPanelActive(isNowActive);
+    });
+
     return () => {
       queryRun.dispose();
       querySuccess.dispose();
       queryFail.dispose();
       databaseChanged.dispose();
+      panelChanged.dispose();
     };
   }, []);
 
