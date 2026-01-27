@@ -1,0 +1,52 @@
+{
+  "id": "editors_bundle",
+  "name": "Editors Bundle",
+  "version": "1.0.0",
+  "frontend": {
+    "contributions": {
+      "editors": [
+        {
+          "id": "editors_bundle.monaco_sql",
+          "name": "Monaco SQL Editor",
+          "languages": ["sql"],
+          "description": "Monaco-based SQL editor with advanced features"
+        },
+        {
+          "id": "editors_bundle.codemirror_css",
+          "name": "CodeMirror CSS Editor",
+          "languages": ["css"],
+          "description": "CodeMirror-based CSS editor"
+        },
+        {
+          "id": "editors_bundle.md_editor",
+          "name": "Markdown Editor",
+          "languages": ["markdown"],
+          "description": "Rich markdown editor with preview"
+        }
+      ],
+      "commands": [
+        {
+          "command": "editors_bundle.switchSQLEditor",
+          "icon": "FormOutlined",
+          "title": "Switch SQL Editor",
+          "description": "Switch between SQL editor implementations (Ace, Monaco, CodeMirror, SimpleMDE)"
+        }
+      ],
+      "menus": {
+        "sqllab.editor": {
+          "primary": [
+            {
+              "view": "sqllab.editor",
+              "command": "editors_bundle.switchSQLEditor"
+            }
+          ]
+        }
+      }
+    },
+    "moduleFederation": {
+      "exposes": ["./index"]
+    }
+  },
+  "dependencies": [],
+  "permissions": []
+}

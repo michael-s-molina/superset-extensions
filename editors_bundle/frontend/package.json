@@ -1,0 +1,36 @@
+{
+  "name": "editors_bundle",
+  "version": "1.0.0",
+  "main": "dist/main.js",
+  "scripts": {
+    "start": "webpack serve --mode development",
+    "build": "webpack --stats-error-details --mode production"
+  },
+  "private": true,
+  "license": "Apache-2.0",
+  "peerDependencies": {
+    "@apache-superset/core": "*",
+    "react": "^17.0.2",
+    "react-dom": "^17.0.2"
+  },
+  "dependencies": {
+    "@monaco-editor/react": "^4.6.0",
+    "@uiw/react-codemirror": "^4.21.0",
+    "@codemirror/lang-css": "^6.2.0",
+    "react-simplemde-editor": "^5.2.0",
+    "easymde": "^2.18.0"
+  },
+  "devDependencies": {
+    "@apache-superset/core": "*",
+    "@babel/preset-react": "^7.26.3",
+    "@babel/preset-typescript": "^7.26.0",
+    "@types/react": "^17.0.0",
+    "css-loader": "^7.1.0",
+    "style-loader": "^4.0.0",
+    "ts-loader": "^9.5.2",
+    "typescript": "^5.8.2",
+    "webpack": "^5.98.0",
+    "webpack-cli": "^6.0.1",
+    "webpack-dev-server": "^5.2.0"
+  }
+}
