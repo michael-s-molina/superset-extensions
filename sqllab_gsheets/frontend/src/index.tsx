@@ -11,15 +11,15 @@ export const activate = (_context: core.ExtensionContext) => {
       return;
     }
 
-    const { editor } = currentTab;
-    const sql = editor.content?.trim();
+    const editor = await currentTab.getEditor();
+    const sql = editor.getValue()?.trim();
 
     if (!sql) {
       message.warning('No SQL query to export. Please write a query first.');
       return;
     }
 
-    if (!editor.databaseId) {
+    if (!currentTab.databaseId) {
       message.warning('No database selected. Please select a database first.');
       return;
     }
@@ -36,10 +36,10 @@ export const activate = (_context: core.ExtensionContext) => {
           'X-CSRFToken': csrfToken!,
         },
         body: JSON.stringify({
-          sql: editor.content,
-          databaseId: editor.databaseId,
-          catalog: editor.catalog,
-          schema: editor.schema,
+          sql,
+          databaseId: currentTab.databaseId,
+          catalog: currentTab.catalog,
+          schema: currentTab.schema,
         }),
       });
 

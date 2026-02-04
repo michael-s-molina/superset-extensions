@@ -42,29 +42,8 @@ export function APIExplorer() {
   useEffect(() => {
     const disposables: Array<{ dispose: () => void }> = [];
 
-    const trySubscribe = (
-      name: string,
-      subscribeFn: () => { dispose: () => void }
-    ) => {
-      try {
-        disposables.push(subscribeFn());
-      } catch (e) {
-        console.warn(`[API Explorer] Event ${name} not available:`, e);
-      }
-    };
-
-    trySubscribe("onDidChangeEditorContent", () =>
-      sqlLab.onDidChangeEditorContent((content: string) => {
-        setLastInteraction({
-          type: "event",
-          name: "onDidChangeEditorContent",
-          timestamp: new Date().toISOString(),
-          result: content,
-        });
-      })
-    );
-
-    trySubscribe("onDidChangeEditorDatabase", () =>
+    // Tab-scoped events
+    disposables.push(
       sqlLab.onDidChangeEditorDatabase((databaseId: number) => {
         setLastInteraction({
           type: "event",
@@ -75,18 +54,7 @@ export function APIExplorer() {
       })
     );
 
-    trySubscribe("onDidChangeEditorCatalog", () =>
-      sqlLab.onDidChangeEditorCatalog((catalog: string) => {
-        setLastInteraction({
-          type: "event",
-          name: "onDidChangeEditorCatalog",
-          timestamp: new Date().toISOString(),
-          result: catalog,
-        });
-      })
-    );
-
-    trySubscribe("onDidChangeEditorSchema", () =>
+    disposables.push(
       sqlLab.onDidChangeEditorSchema((schema: string) => {
         setLastInteraction({
           type: "event",
@@ -97,29 +65,7 @@ export function APIExplorer() {
       })
     );
 
-    trySubscribe("onDidChangeEditorTable", () =>
-      sqlLab.onDidChangeEditorTable((table: string) => {
-        setLastInteraction({
-          type: "event",
-          name: "onDidChangeEditorTable",
-          timestamp: new Date().toISOString(),
-          result: table,
-        });
-      })
-    );
-
-    trySubscribe("onDidClosePanel", () =>
-      sqlLab.onDidClosePanel((panel: unknown) => {
-        setLastInteraction({
-          type: "event",
-          name: "onDidClosePanel",
-          timestamp: new Date().toISOString(),
-          result: panel,
-        });
-      })
-    );
-
-    trySubscribe("onDidChangeActivePanel", () =>
+    disposables.push(
       sqlLab.onDidChangeActivePanel((panel: unknown) => {
         setLastInteraction({
           type: "event",
@@ -130,7 +76,7 @@ export function APIExplorer() {
       })
     );
 
-    trySubscribe("onDidChangeTabTitle", () =>
+    disposables.push(
       sqlLab.onDidChangeTabTitle((title: string) => {
         setLastInteraction({
           type: "event",
@@ -141,7 +87,7 @@ export function APIExplorer() {
       })
     );
 
-    trySubscribe("onDidQueryRun", () =>
+    disposables.push(
       sqlLab.onDidQueryRun((query: unknown) => {
         setLastInteraction({
           type: "event",
@@ -152,7 +98,7 @@ export function APIExplorer() {
       })
     );
 
-    trySubscribe("onDidQueryStop", () =>
+    disposables.push(
       sqlLab.onDidQueryStop((query: unknown) => {
         setLastInteraction({
           type: "event",
@@ -163,7 +109,7 @@ export function APIExplorer() {
       })
     );
 
-    trySubscribe("onDidQueryFail", () =>
+    disposables.push(
       sqlLab.onDidQueryFail((result: unknown) => {
         setLastInteraction({
           type: "event",
@@ -174,7 +120,7 @@ export function APIExplorer() {
       })
     );
 
-    trySubscribe("onDidQuerySuccess", () =>
+    disposables.push(
       sqlLab.onDidQuerySuccess((result: unknown) => {
         setLastInteraction({
           type: "event",
@@ -185,7 +131,8 @@ export function APIExplorer() {
       })
     );
 
-    trySubscribe("onDidCloseTab", () =>
+    // Global events
+    disposables.push(
       sqlLab.onDidCloseTab((tab: unknown) => {
         setLastInteraction({
           type: "event",
@@ -196,7 +143,7 @@ export function APIExplorer() {
       })
     );
 
-    trySubscribe("onDidChangeActiveTab", () =>
+    disposables.push(
       sqlLab.onDidChangeActiveTab((tab: unknown) => {
         setLastInteraction({
           type: "event",
@@ -207,46 +154,13 @@ export function APIExplorer() {
       })
     );
 
-    trySubscribe("onDidRefreshDatabases", () =>
-      sqlLab.onDidRefreshDatabases(() => {
+    disposables.push(
+      sqlLab.onDidCreateTab((tab: unknown) => {
         setLastInteraction({
           type: "event",
-          name: "onDidRefreshDatabases",
+          name: "onDidCreateTab",
           timestamp: new Date().toISOString(),
-          result: null,
-        });
-      })
-    );
-
-    trySubscribe("onDidRefreshCatalogs", () =>
-      sqlLab.onDidRefreshCatalogs(() => {
-        setLastInteraction({
-          type: "event",
-          name: "onDidRefreshCatalogs",
-          timestamp: new Date().toISOString(),
-          result: null,
-        });
-      })
-    );
-
-    trySubscribe("onDidRefreshSchemas", () =>
-      sqlLab.onDidRefreshSchemas(() => {
-        setLastInteraction({
-          type: "event",
-          name: "onDidRefreshSchemas",
-          timestamp: new Date().toISOString(),
-          result: null,
-        });
-      })
-    );
-
-    trySubscribe("onDidRefreshTables", () =>
-      sqlLab.onDidRefreshTables(() => {
-        setLastInteraction({
-          type: "event",
-          name: "onDidRefreshTables",
-          timestamp: new Date().toISOString(),
-          result: null,
+          result: tab,
         });
       })
     );
@@ -269,12 +183,11 @@ export function APIExplorer() {
 
   const apiCommands = [
     { id: "api_explorer.getTabs", label: "getTabs", icon: "📑" },
-    {
-      id: "api_explorer.getCurrentTab",
-      label: "getCurrentTab",
-      icon: "📄",
-    },
+    { id: "api_explorer.getCurrentTab", label: "getCurrentTab", icon: "📄" },
     { id: "api_explorer.getDatabases", label: "getDatabases", icon: "🗄️" },
+    { id: "api_explorer.getActivePanel", label: "getActivePanel", icon: "📊" },
+    { id: "api_explorer.createTab", label: "createTab", icon: "➕" },
+    { id: "api_explorer.executeQuery", label: "executeQuery", icon: "▶️" },
   ];
 
   const formatResult = (data: unknown): string => {

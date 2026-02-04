@@ -1,4 +1,4 @@
-import React, { useReducer, useEffect, useRef } from "react";
+import React, { useReducer, useEffect } from "react";
 import {
   Modal,
   Input,
@@ -23,9 +23,10 @@ import {
   Snippet,
   SnippetsState,
   SnippetsAction,
-  AceEditorInstance,
 } from "./types";
 import { loadSnippets, saveSnippets, generateId } from "./storage";
+
+const { TextArea } = Input;
 
 const { Text } = Typography;
 
@@ -79,8 +80,7 @@ export const SnippetsModal: React.FC<SnippetsModalProps> = ({
   const theme = useTheme();
   const [state, dispatch] = useReducer(snippetsReducer, initialState);
   const [snippetName, setSnippetName] = React.useState("");
-  const editorRef = useRef<HTMLDivElement>(null);
-  const aceInstanceRef = useRef<AceEditorInstance | null>(null);
+  const [snippetSql, setSnippetSql] = React.useState("");
 
   // Load snippets on mount
   useEffect(() => {
@@ -94,18 +94,10 @@ export const SnippetsModal: React.FC<SnippetsModalProps> = ({
     }
   }, [state.snippets]);
 
-  // Initialize Ace editor when form is visible
+  // Reset form when editing snippet changes
   useEffect(() => {
-    if (state.isFormVisible && editorRef.current && !aceInstanceRef.current) {
-      const editor = ace.edit(editorRef.current);
-      editor.setValue(state.editingSnippet?.sql || "", -1);
-      aceInstanceRef.current = editor;
-      setTimeout(() => editor.focus(), 100);
-    }
-
-    // Cleanup when form is hidden
-    if (!state.isFormVisible && aceInstanceRef.current) {
-      aceInstanceRef.current = null;
+    if (state.isFormVisible) {
+      setSnippetSql(state.editingSnippet?.sql || "");
     }
   }, [state.isFormVisible, state.editingSnippet]);
 
@@ -127,7 +119,7 @@ export const SnippetsModal: React.FC<SnippetsModalProps> = ({
   };
 
   const handleFormSubmit = () => {
-    const sql = aceInstanceRef.current?.getValue()?.trim();
+    const sql = snippetSql.trim();
     const name = snippetName.trim();
 
     if (!name) {
@@ -221,12 +213,14 @@ export const SnippetsModal: React.FC<SnippetsModalProps> = ({
             >
               SQL
             </Text>
-            <div
-              ref={editorRef}
+            <TextArea
+              value={snippetSql}
+              onChange={(e) => setSnippetSql(e.target.value)}
+              placeholder="Enter SQL code..."
+              rows={8}
               style={{
-                height: 200,
-                border: `1px solid ${theme.colorBorder}`,
-                borderRadius: theme.borderRadius,
+                fontFamily: theme.fontFamilyCode,
+                fontSize: theme.fontSizeSM,
               }}
             />
           </div>

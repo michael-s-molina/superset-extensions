@@ -79,9 +79,10 @@ export const EstimatorPanel: React.FC = () => {
       return;
     }
 
-    const { editor } = currentTab;
+    const editor = await currentTab.getEditor();
+    const content = editor.getValue();
 
-    if (!editor.content.trim()) {
+    if (!content.trim()) {
       dispatch({ type: 'ESTIMATE_ERROR', payload: 'Please enter a SQL query' });
       return;
     }
@@ -90,10 +91,10 @@ export const EstimatorPanel: React.FC = () => {
 
     try {
       const result = await fetchEstimation(
-        editor.content,
-        editor.databaseId,
-        editor.catalog,
-        editor.schema,
+        content,
+        currentTab.databaseId,
+        currentTab.catalog,
+        currentTab.schema ?? '',
       );
       dispatch({ type: 'ESTIMATE_SUCCESS', payload: result });
     } catch (err) {

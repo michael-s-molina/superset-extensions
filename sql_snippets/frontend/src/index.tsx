@@ -1,32 +1,20 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
-import { core, commands, themeObject } from '@apache-superset/core';
+import { core, commands, sqlLab, themeObject } from '@apache-superset/core';
 import { SnippetsModal } from './SnippetsModal';
-import { AceEditorInstance } from './types';
 
 const { SupersetThemeProvider } = themeObject;
 
-function insertSqlIntoEditor(sql: string): boolean {
-  // TODO: Replace this direct DOM manipulation with the SQL Lab editing API
-  // once it's added to @apache-superset/core (e.g., sqlLab.setEditorContent())
-
-  // Find the Ace editor instance in the DOM
-  const aceEditor = document.querySelector('.ace_editor') as HTMLElement & {
-    env?: { editor?: AceEditorInstance };
-  };
-
-  if (!aceEditor?.env?.editor) {
-    console.error('[SQL Snippets] Ace editor not found');
+async function insertSqlIntoEditor(sql: string): Promise<boolean> {
+  const currentTab = sqlLab.getCurrentTab();
+  if (!currentTab) {
+    console.error('[SQL Snippets] No active tab found');
     return false;
   }
 
-  const editor = aceEditor.env.editor;
-
-  // Move cursor to end and insert snippet
-  editor.navigateFileEnd();
-  const currentContent = editor.getValue();
-  const insertText = currentContent ? `\n\n${sql}` : sql;
-  editor.insert(insertText);
+  const editor = await currentTab.getEditor();
+  editor.insertText(sql);
+  editor.focus();
 
   return true;
 }

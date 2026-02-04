@@ -77,6 +77,75 @@ export const activate = (context: core.ExtensionContext) => {
       }
     })
   );
+
+  context.disposables.push(
+    commands.registerCommand("api_explorer.getActivePanel", async () => {
+      try {
+        const panel = sqlLab.getActivePanel();
+        setLastInteraction({
+          type: "command",
+          name: "getActivePanel",
+          timestamp: new Date().toISOString(),
+          result: panel,
+        });
+        return panel;
+      } catch (error) {
+        setLastInteraction({
+          type: "command",
+          name: "getActivePanel",
+          timestamp: new Date().toISOString(),
+          error: String(error),
+        });
+        throw error;
+      }
+    })
+  );
+
+  context.disposables.push(
+    commands.registerCommand("api_explorer.createTab", async () => {
+      try {
+        const tab = await sqlLab.createTab();
+        setLastInteraction({
+          type: "command",
+          name: "createTab",
+          timestamp: new Date().toISOString(),
+          result: tab,
+        });
+        return tab;
+      } catch (error) {
+        setLastInteraction({
+          type: "command",
+          name: "createTab",
+          timestamp: new Date().toISOString(),
+          error: String(error),
+        });
+        throw error;
+      }
+    })
+  );
+
+  context.disposables.push(
+    commands.registerCommand("api_explorer.executeQuery", async () => {
+      try {
+        const result = await sqlLab.executeQuery();
+        setLastInteraction({
+          type: "command",
+          name: "executeQuery",
+          timestamp: new Date().toISOString(),
+          result: result,
+        });
+        return result;
+      } catch (error) {
+        setLastInteraction({
+          type: "command",
+          name: "executeQuery",
+          timestamp: new Date().toISOString(),
+          error: String(error),
+        });
+        throw error;
+      }
+    })
+  );
 };
 
 export const deactivate = () => {};

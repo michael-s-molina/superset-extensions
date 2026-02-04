@@ -177,10 +177,10 @@ const Main: React.FC = () => {
 
   useEffect(() => {
     const currentTab = sqlLab.getCurrentTab();
-    if (currentTab?.editor?.databaseId) {
+    if (currentTab?.databaseId) {
       dispatch({
         type: 'DATABASE_CHANGED',
-        payload: currentTab.editor.databaseId,
+        payload: currentTab.databaseId,
       });
     }
 
@@ -191,10 +191,10 @@ const Main: React.FC = () => {
 
     const queryRun = sqlLab.onDidQueryRun(
       (queryContext: sqlLab.QueryContext) => {
-        const { editor } = queryContext.tab;
+        const { tab } = queryContext;
 
         // Only dispatch if the database is supported
-        if (!SUPPORTED_DATABASE_IDS.includes(editor.databaseId)) {
+        if (!SUPPORTED_DATABASE_IDS.includes(tab.databaseId)) {
           return;
         }
 
@@ -206,29 +206,29 @@ const Main: React.FC = () => {
     );
 
     const querySuccess = sqlLab.onDidQuerySuccess(
-      async (queryContext: sqlLab.QueryContext) => {
-        const { editor } = queryContext.tab;
+      async (queryContext: sqlLab.QueryResultContext) => {
+        const { tab, executedSql } = queryContext;
 
         // Only process if the database is supported
-        if (!SUPPORTED_DATABASE_IDS.includes(editor.databaseId)) {
+        if (!SUPPORTED_DATABASE_IDS.includes(tab.databaseId)) {
           return;
         }
 
         if (isPanelActiveRef.current) {
           // Panel is active, fetch insights immediately
           await fetchAndDispatchInsights(
-            editor.content,
-            editor.databaseId,
-            editor.schema,
+            executedSql,
+            tab.databaseId,
+            tab.schema ?? '',
           );
         } else {
           // Panel is inactive, store the query for later processing
           dispatch({
             type: 'SET_PENDING_QUERY',
             payload: {
-              content: editor.content,
-              databaseId: editor.databaseId,
-              schema: editor.schema,
+              content: executedSql,
+              databaseId: tab.databaseId,
+              schema: tab.schema ?? '',
             },
           });
         }
@@ -237,10 +237,10 @@ const Main: React.FC = () => {
 
     const queryFail = sqlLab.onDidQueryFail(
       (queryContext: sqlLab.QueryContext) => {
-        const { editor } = queryContext.tab;
+        const { tab } = queryContext;
 
         // Only dispatch if the database is supported
-        if (!SUPPORTED_DATABASE_IDS.includes(editor.databaseId)) {
+        if (!SUPPORTED_DATABASE_IDS.includes(tab.databaseId)) {
           return;
         }
 
