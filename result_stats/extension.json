@@ -6,12 +6,14 @@
   "frontend": {
     "contributions": {
       "views": {
-        "sqllab.panels": [
-          {
-            "id": "result_stats.main",
-            "name": "Result Stats"
-          }
-        ]
+        "sqllab": {
+          "panels": [
+            {
+              "id": "result_stats.main",
+              "name": "Result Stats"
+            }
+          ]
+        }
       }
     },
     "moduleFederation": {

@@ -5,12 +5,14 @@
   "frontend": {
     "contributions": {
       "views": {
-        "sqllab.panels": [
-          {
-            "id": "query_insights.main",
-            "name": "Query Insights"
-          }
-        ]
+        "sqllab": {
+          "panels": [
+            {
+              "id": "query_insights.main",
+              "name": "Query Insights"
+            }
+          ]
+        }
       }
     },
     "moduleFederation": {

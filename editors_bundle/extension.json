@@ -33,13 +33,15 @@
         }
       ],
       "menus": {
-        "sqllab.editor": {
-          "primary": [
-            {
-              "view": "sqllab.editor",
-              "command": "editors_bundle.switchSQLEditor"
-            }
-          ]
+        "sqllab": {
+          "editor": {
+            "primary": [
+              {
+                "view": "sqllab.editor",
+                "command": "editors_bundle.switchSQLEditor"
+              }
+            ]
+          }
         }
       }
     },

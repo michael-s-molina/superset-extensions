@@ -6,12 +6,14 @@
   "frontend": {
     "contributions": {
       "views": {
-        "sqllab.rightSidebar": [
-          {
-            "id": "api_explorer.apiExplorer",
-            "name": "API Explorer"
-          }
-        ]
+        "sqllab": {
+          "rightSidebar": [
+            {
+              "id": "api_explorer.apiExplorer",
+              "name": "API Explorer"
+            }
+          ]
+        }
       }
     },
     "moduleFederation": {

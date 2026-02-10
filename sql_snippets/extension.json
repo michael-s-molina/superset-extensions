@@ -12,13 +12,15 @@
         }
       ],
       "menus": {
-        "sqllab.editor": {
-          "secondary": [
-            {
-              "view": "builtin.editor",
-              "command": "sql_snippets.open"
-            }
-          ]
+        "sqllab": {
+          "editor": {
+            "secondary": [
+              {
+                "view": "builtin.editor",
+                "command": "sql_snippets.open"
+              }
+            ]
+          }
         }
       }
     },

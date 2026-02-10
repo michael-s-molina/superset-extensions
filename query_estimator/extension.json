@@ -6,12 +6,14 @@
   "frontend": {
     "contributions": {
       "views": {
-        "sqllab.panels": [
-          {
-            "id": "query_estimator.main",
-            "name": "Query Estimator"
-          }
-        ]
+        "sqllab": {
+          "panels": [
+            {
+              "id": "query_estimator.main",
+              "name": "Query Estimator"
+            }
+          ]
+        }
       }
     },
     "moduleFederation": {
