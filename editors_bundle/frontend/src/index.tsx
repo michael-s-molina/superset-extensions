@@ -1,5 +1,4 @@
 import { core, editors, commands } from '@apache-superset/core';
-import type { contributions } from '@apache-superset/core';
 import MonacoSQLEditor from './editors/MonacoSQLEditor';
 import CodeMirrorCSSEditor from './editors/CodeMirrorCSSEditor';
 import SimpleMDEEditor from './editors/SimpleMDEEditor';
@@ -29,16 +28,6 @@ const SQL_EDITORS: SQLEditorOption[] = [
     name: 'Monaco',
     component: MonacoSQLEditor,
   },
-  {
-    id: 'editors_bundle.codemirror_sql',
-    name: 'CodeMirror',
-    component: CodeMirrorCSSEditor, // Reusing CodeMirror component
-  },
-  {
-    id: 'editors_bundle.simplemde_sql',
-    name: 'SimpleMDE',
-    component: SimpleMDEEditor, // Reusing SimpleMDE component
-  },
 ];
 
 // Current SQL editor state
@@ -58,13 +47,7 @@ function registerCurrentSQLEditor(): core.Disposable | null {
     return null;
   }
 
-  const contribution: contributions.EditorContribution = {
-    id: editor.id,
-    name: `${editor.name} SQL Editor`,
-    languages: ['sql'],
-    description: `SQL editor powered by ${editor.name}`,
-  };
-  return editors.registerEditorProvider(contribution, editor.component);
+  return editors.registerEditorProvider(editor.id, editor.component);
 }
 
 /**
@@ -124,28 +107,12 @@ export const activate = (context: core.ExtensionContext) => {
 
   // Register CodeMirror for CSS
   context.disposables.push(
-    editors.registerEditorProvider(
-      {
-        id: 'editors_bundle.codemirror_css',
-        name: 'CodeMirror CSS Editor',
-        languages: ['css'],
-        description: 'CodeMirror-based CSS editor',
-      },
-      CodeMirrorCSSEditor,
-    ),
+    editors.registerEditorProvider('editors_bundle.codemirror_css', CodeMirrorCSSEditor),
   );
 
   // Register SimpleMDE for Markdown
   context.disposables.push(
-    editors.registerEditorProvider(
-      {
-        id: 'editors_bundle.simplemde',
-        name: 'SimpleMDE Markdown Editor',
-        languages: ['markdown'],
-        description: 'EasyMDE-based markdown editor with toolbar and preview',
-      },
-      SimpleMDEEditor,
-    ),
+    editors.registerEditorProvider('editors_bundle.md_editor', SimpleMDEEditor),
   );
 
 };

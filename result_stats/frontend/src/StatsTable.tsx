@@ -1,5 +1,5 @@
 import React from 'react';
-import { Tag, Tooltip, Progress } from 'antd';
+import { Tag, Tooltip } from 'antd';
 import { core, useTheme, SupersetTheme } from '@apache-superset/core';
 import { ColumnStats, ResultStats } from './types';
 
@@ -36,72 +36,82 @@ const getHeaderStyle = (theme: SupersetTheme): React.CSSProperties => ({
   borderBottom: `${theme.lineWidth}px solid ${theme.colorBorder}`,
 });
 
-interface ProgressCellProps {
-  percent: number;
-  count: number;
-  label: string;
-  color?: string;
-  danger?: boolean;
-}
+// Reusable cell components
 
-const ProgressCell: React.FC<ProgressCellProps> = ({ percent, count, label, color, danger }) => {
+const CountCell: React.FC<{ value: number; percent: number; label?: string }> = ({ value, percent, label }) => {
   const theme = useTheme();
+  const content = (
+    <span>
+      {formatValue(value)}{' '}
+      <span style={{ color: theme.colorTextTertiary }}>({percent.toFixed(1)}%)</span>
+    </span>
+  );
+  return label ? <Tooltip title={label}>{content}</Tooltip> : content;
+};
+
+const TopFrequentCell: React.FC<{ entries: { value: string | number | null; count: number }[] }> = ({ entries }) => {
+  const theme = useTheme();
+  if (!entries || entries.length === 0) return <span>-</span>;
   return (
-    <Tooltip title={`${percent.toFixed(1)}% ${label} (${formatValue(count)})`}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: theme.marginXS }}>
-        <Progress
-          percent={percent}
-          size="small"
-          style={{ width: 50, margin: 0 }}
-          showInfo={false}
-          strokeColor={color}
-          status={danger && percent > 50 ? 'exception' : 'normal'}
-        />
-        <span style={{ color: theme.colorTextSecondary }}>{percent.toFixed(1)}%</span>
-      </div>
-    </Tooltip>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: theme.marginXXS }}>
+      {entries.map((entry, i) => (
+        <span key={i}>
+          {formatValue(entry.value)}{' '}
+          <span style={{ color: theme.colorTextTertiary }}>({formatValue(entry.count)})</span>
+        </span>
+      ))}
+    </div>
   );
 };
 
-const MostFrequentCell: React.FC<{ freq?: { value: string | number | null; count: number } }> = ({ freq }) => {
-  const theme = useTheme();
-  if (!freq) return <span>-</span>;
-  return (
-    <Tooltip title={`Appears ${formatValue(freq.count)} times`}>
-      <span>
-        {formatValue(freq.value)} <span style={{ color: theme.colorTextTertiary }}>({formatValue(freq.count)})</span>
-      </span>
-    </Tooltip>
-  );
-};
+// Reusable cell renderers
 
-interface CommonCellsProps {
-  row: ColumnStats;
-  cellStyle: React.CSSProperties;
-  successColor: string;
-}
+const renderNameCell = (row: ColumnStats, cellStyle: React.CSSProperties, theme: SupersetTheme) => (
+  <td style={{ ...cellStyle, fontWeight: theme.fontWeightStrong }}>{row.name}</td>
+);
 
-const CommonCells: React.FC<CommonCellsProps> = ({ row, cellStyle, successColor }) => (
+const renderEmptyCell = (row: ColumnStats, cellStyle: React.CSSProperties) => (
+  <td style={cellStyle}>
+    <CountCell value={row.emptyCount} percent={row.emptyPercent} label="null or empty values" />
+  </td>
+);
+
+const renderDistinctCell = (row: ColumnStats, cellStyle: React.CSSProperties) => (
+  <td style={cellStyle}>
+    <CountCell value={row.distinctCount} percent={row.distinctPercent} label="distinct non-empty values" />
+  </td>
+);
+
+const renderTopValueCell = (row: ColumnStats, cellStyle: React.CSSProperties) => (
+  <td style={cellStyle}><TopFrequentCell entries={row.topFrequent} /></td>
+);
+
+const renderZeroCell = (row: ColumnStats, cellStyle: React.CSSProperties) => (
+  <td style={cellStyle}>
+    {row.numericStats
+      ? <CountCell value={row.numericStats.zeroCount} percent={row.numericStats.zeroPercent} label="zero values" />
+      : '-'}
+  </td>
+);
+
+const renderCommonCells = (row: ColumnStats, cellStyle: React.CSSProperties, theme: SupersetTheme) => (
   <>
-    <td style={cellStyle}>
-      <ProgressCell percent={row.nullPercent} count={row.nullCount} label="null values" danger />
-    </td>
-    <td style={cellStyle}>
-      <ProgressCell percent={row.distinctPercent} count={row.distinctCount} label="distinct values" color={successColor} />
-    </td>
-    <td style={cellStyle}><MostFrequentCell freq={row.mostFrequent} /></td>
+    {renderNameCell(row, cellStyle, theme)}
+    {renderEmptyCell(row, cellStyle)}
+    {renderDistinctCell(row, cellStyle)}
+    {renderTopValueCell(row, cellStyle)}
   </>
 );
 
-const COMMON_HEADERS = ['Column', 'Nulls %', 'Distinct %', 'Most Frequent'];
+// Table wrapper — purely structural
 
 interface StatsTableWrapperProps {
   headers: string[];
   data: ColumnStats[];
-  renderExtraCells: (row: ColumnStats, cellStyle: React.CSSProperties) => React.ReactNode;
+  renderCells: (row: ColumnStats, cellStyle: React.CSSProperties, theme: SupersetTheme) => React.ReactNode;
 }
 
-const StatsTableWrapper: React.FC<StatsTableWrapperProps> = ({ headers, data, renderExtraCells }) => {
+const StatsTableWrapper: React.FC<StatsTableWrapperProps> = ({ headers, data, renderCells }) => {
   const theme = useTheme();
   const cellStyle = getCellStyle(theme);
   const headerStyle = getHeaderStyle(theme);
@@ -110,35 +120,40 @@ const StatsTableWrapper: React.FC<StatsTableWrapperProps> = ({ headers, data, re
     <table style={{ width: '100%', borderCollapse: 'collapse' }}>
       <thead>
         <tr>
-          {[...COMMON_HEADERS, ...headers].map(header => (
+          {headers.map(header => (
             <th key={header} style={headerStyle}>{header}</th>
           ))}
         </tr>
       </thead>
       <tbody>
         {data.map(row => (
-          <tr key={row.name}>
-            <td style={{ ...cellStyle, fontWeight: theme.fontWeightStrong }}>{row.name}</td>
-            <CommonCells row={row} cellStyle={cellStyle} successColor={theme.colorSuccess} />
-            {renderExtraCells(row, cellStyle)}
-          </tr>
+          <tr key={row.name}>{renderCells(row, cellStyle, theme)}</tr>
         ))}
       </tbody>
     </table>
   );
 };
 
+// Type-specific tables
+
 const NumericTable: React.FC<{ data: ColumnStats[] }> = ({ data }) => (
   <StatsTableWrapper
-    headers={['Min', 'Max', 'Mean', 'Median', 'Std Dev']}
+    headers={['Column', 'Empty', 'Zeros', 'Distinct', 'Most Frequent', 'Min', 'Max', 'Mean', 'Std Dev', 'P25', 'P50', 'P75']}
     data={data}
-    renderExtraCells={(row, cellStyle) => (
+    renderCells={(row, cellStyle, theme) => (
       <>
+        {renderNameCell(row, cellStyle, theme)}
+        {renderEmptyCell(row, cellStyle)}
+        {renderZeroCell(row, cellStyle)}
+        {renderDistinctCell(row, cellStyle)}
+        {renderTopValueCell(row, cellStyle)}
         <td style={cellStyle}>{formatValue(row.numericStats?.min)}</td>
         <td style={cellStyle}>{formatValue(row.numericStats?.max)}</td>
         <td style={cellStyle}>{formatValue(row.numericStats?.mean)}</td>
-        <td style={cellStyle}>{formatValue(row.numericStats?.median)}</td>
         <td style={cellStyle}>{formatValue(row.numericStats?.stdDev)}</td>
+        <td style={cellStyle}>{formatValue(row.numericStats?.p25)}</td>
+        <td style={cellStyle}>{formatValue(row.numericStats?.p50)}</td>
+        <td style={cellStyle}>{formatValue(row.numericStats?.p75)}</td>
       </>
     )}
   />
@@ -146,14 +161,14 @@ const NumericTable: React.FC<{ data: ColumnStats[] }> = ({ data }) => (
 
 const StringTable: React.FC<{ data: ColumnStats[] }> = ({ data }) => (
   <StatsTableWrapper
-    headers={['Min Length', 'Max Length', 'Avg Length', 'Empty']}
+    headers={['Column', 'Empty', 'Distinct', 'Most Frequent', 'Min Length', 'Max Length', 'Avg Length']}
     data={data}
-    renderExtraCells={(row, cellStyle) => (
+    renderCells={(row, cellStyle, theme) => (
       <>
+        {renderCommonCells(row, cellStyle, theme)}
         <td style={cellStyle}>{formatValue(row.stringStats?.minLength)}</td>
         <td style={cellStyle}>{formatValue(row.stringStats?.maxLength)}</td>
         <td style={cellStyle}>{formatValue(row.stringStats?.avgLength)}</td>
-        <td style={cellStyle}>{formatValue(row.stringStats?.emptyCount)}</td>
       </>
     )}
   />
@@ -161,10 +176,11 @@ const StringTable: React.FC<{ data: ColumnStats[] }> = ({ data }) => (
 
 const TemporalTable: React.FC<{ data: ColumnStats[] }> = ({ data }) => (
   <StatsTableWrapper
-    headers={['Min', 'Max', 'Range']}
+    headers={['Column', 'Empty', 'Distinct', 'Most Frequent', 'Min', 'Max', 'Range']}
     data={data}
-    renderExtraCells={(row, cellStyle) => (
+    renderCells={(row, cellStyle, theme) => (
       <>
+        {renderCommonCells(row, cellStyle, theme)}
         <td style={cellStyle}>{row.temporalStats?.min || '-'}</td>
         <td style={cellStyle}>{row.temporalStats?.max || '-'}</td>
         <td style={cellStyle}>{row.temporalStats?.rangeDescription || '-'}</td>
@@ -173,41 +189,28 @@ const TemporalTable: React.FC<{ data: ColumnStats[] }> = ({ data }) => (
   />
 );
 
-const BooleanTable: React.FC<{ data: ColumnStats[] }> = ({ data }) => {
-  const theme = useTheme();
-  return (
-    <StatsTableWrapper
-      headers={['True', 'False', 'Distribution']}
-      data={data}
-      renderExtraCells={(row, cellStyle) => (
+const BooleanTable: React.FC<{ data: ColumnStats[] }> = ({ data }) => (
+  <StatsTableWrapper
+    headers={['Column', 'Empty', 'Most Frequent', 'True', 'False']}
+    data={data}
+    renderCells={(row, cellStyle, theme) => {
+      const bs = row.booleanStats;
+      return (
         <>
+          {renderNameCell(row, cellStyle, theme)}
+          {renderEmptyCell(row, cellStyle)}
+          {renderTopValueCell(row, cellStyle)}
           <td style={cellStyle}>
-            {row.booleanStats
-              ? `${formatValue(row.booleanStats.trueCount)} (${formatValue(row.booleanStats.truePercent)}%)`
-              : '-'}
+            {bs ? <CountCell value={bs.trueCount} percent={bs.truePercent} label="true values" /> : '-'}
           </td>
           <td style={cellStyle}>
-            {row.booleanStats
-              ? `${formatValue(row.booleanStats.falseCount)} (${formatValue(100 - row.booleanStats.truePercent)}%)`
-              : '-'}
-          </td>
-          <td style={cellStyle}>
-            {row.booleanStats ? (
-              <Progress
-                percent={row.booleanStats.truePercent}
-                size="small"
-                showInfo={false}
-                strokeColor={theme.colorSuccess}
-                trailColor={theme.colorError}
-                style={{ width: 80 }}
-              />
-            ) : '-'}
+            {bs ? <CountCell value={bs.falseCount} percent={bs.falsePercent} label="false values" /> : '-'}
           </td>
         </>
-      )}
-    />
-  );
-};
+      );
+    }}
+  />
+);
 
 const TABLE_COMPONENTS: Record<core.GenericDataType, React.FC<{ data: ColumnStats[] }>> = {
   [core.GenericDataType.Numeric]: NumericTable,
@@ -242,17 +245,30 @@ interface StatsTableProps {
   stats: ResultStats;
 }
 
+const TYPE_ORDER = [
+  core.GenericDataType.Numeric,
+  core.GenericDataType.String,
+  core.GenericDataType.Temporal,
+  core.GenericDataType.Boolean,
+] as const;
+
 const StatsTable: React.FC<StatsTableProps> = ({ stats }) => {
   const theme = useTheme();
 
-  const dataByType = {
-    [core.GenericDataType.Numeric]: stats.columns.filter(c => c.typeGeneric === core.GenericDataType.Numeric),
-    [core.GenericDataType.String]: stats.columns.filter(c => c.typeGeneric === core.GenericDataType.String),
-    [core.GenericDataType.Temporal]: stats.columns.filter(c => c.typeGeneric === core.GenericDataType.Temporal),
-    [core.GenericDataType.Boolean]: stats.columns.filter(c => c.typeGeneric === core.GenericDataType.Boolean),
-  };
+  const dataByType = stats.columns.reduce<Partial<Record<core.GenericDataType, ColumnStats[]>>>(
+    (acc, col) => {
+      const bucket = acc[col.typeGeneric];
+      if (bucket) {
+        bucket.push(col);
+      } else {
+        acc[col.typeGeneric] = [col];
+      }
+      return acc;
+    },
+    {},
+  );
 
-  const hasData = Object.values(dataByType).some(arr => arr.length > 0);
+  const hasData = TYPE_ORDER.some(type => (dataByType[type]?.length ?? 0) > 0);
 
   if (!hasData) {
     return <div style={{ color: theme.colorTextTertiary, padding: theme.padding }}>No columns to display</div>;
@@ -260,8 +276,11 @@ const StatsTable: React.FC<StatsTableProps> = ({ stats }) => {
 
   return (
     <div>
-      {Object.entries(dataByType).map(([type, data]) => (
-        <TypeSection key={type} type={Number(type) as core.GenericDataType} data={data} />
+      <div style={{ marginBottom: theme.marginMD, color: theme.colorText, fontSize: theme.fontSizeSM }}>
+        Statistics are computed on the {stats.rowCount.toLocaleString()} row{stats.rowCount !== 1 ? 's' : ''} and {stats.columnCount} column{stats.columnCount !== 1 ? 's' : ''} returned by the query.
+      </div>
+      {TYPE_ORDER.map(type => (
+        <TypeSection key={type} type={type} data={dataByType[type] ?? []} />
       ))}
     </div>
   );

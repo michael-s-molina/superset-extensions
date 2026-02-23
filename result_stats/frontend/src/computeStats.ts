@@ -10,7 +10,14 @@ import {
 
 type QueryResultRow = Record<string, unknown>;
 
-const getNumericStats = (values: unknown[]): NumericStats | undefined => {
+const percentile = (sorted: number[], p: number): number => {
+  const index = p * (sorted.length - 1);
+  const lower = Math.floor(index);
+  const upper = Math.ceil(index);
+  return sorted[lower] + (index - lower) * (sorted[upper] - sorted[lower]);
+};
+
+const getNumericStats = (values: unknown[], rowCount: number): NumericStats | undefined => {
   const numbers = values
     .filter((v): v is number | string => v !== null && v !== undefined)
     .map(v => (typeof v === 'number' ? v : Number(v)))
@@ -25,23 +32,21 @@ const getNumericStats = (values: unknown[]): NumericStats | undefined => {
   const mean = sum / numbers.length;
 
   const sorted = [...numbers].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  const median =
-    sorted.length % 2 !== 0
-      ? sorted[mid]
-      : (sorted[mid - 1] + sorted[mid]) / 2;
 
   const squaredDiffs = numbers.map(n => Math.pow(n - mean, 2));
   const avgSquaredDiff =
     squaredDiffs.reduce((acc, n) => acc + n, 0) / numbers.length;
   const stdDev = Math.sqrt(avgSquaredDiff);
 
-  return { min, max, mean, median, stdDev };
+  const zeroCount = numbers.filter(n => n === 0).length;
+  const zeroPercent = (zeroCount / rowCount) * 100;
+
+  return { min, max, mean, p25: percentile(sorted, 0.25), p50: percentile(sorted, 0.5), p75: percentile(sorted, 0.75), stdDev, zeroCount, zeroPercent };
 };
 
 const getStringStats = (values: unknown[]): StringStats | undefined => {
   const strings = values
-    .filter((v): v is string => typeof v === 'string');
+    .filter((v): v is string => typeof v === 'string' && v.trim() !== '');
 
   if (strings.length === 0) return undefined;
 
@@ -49,9 +54,8 @@ const getStringStats = (values: unknown[]): StringStats | undefined => {
   const minLength = Math.min(...lengths);
   const maxLength = Math.max(...lengths);
   const avgLength = lengths.reduce((acc, l) => acc + l, 0) / lengths.length;
-  const emptyCount = strings.filter(s => s === '').length;
 
-  return { minLength, maxLength, avgLength, emptyCount };
+  return { minLength, maxLength, avgLength };
 };
 
 const formatDateRange = (minDate: Date, maxDate: Date): string => {
@@ -81,7 +85,7 @@ const formatDateRange = (minDate: Date, maxDate: Date): string => {
 
 const getTemporalStats = (values: unknown[]): TemporalStats | undefined => {
   const dates = values
-    .filter((v): v is string | Date => v !== null && v !== undefined)
+    .filter(v => v !== null && v !== undefined)
     .map(v => new Date(String(v)))
     .filter(d => !isNaN(d.getTime()));
 
@@ -109,21 +113,27 @@ const getBooleanStats = (
 
   if (booleanLike.length === 0) return undefined;
 
-  const trueCount = booleanLike.filter(b => b === true || b === 1).length;
-  const falseCount = booleanLike.filter(b => b === false || b === 0).length;
+  let trueCount = 0;
+  let falseCount = 0;
+  for (const b of booleanLike) {
+    if (b === true || b === 1) trueCount++;
+    else falseCount++;
+  }
   const total = trueCount + falseCount;
 
   return {
     trueCount,
     falseCount,
     truePercent: total > 0 ? (trueCount / total) * 100 : 0,
+    falsePercent: total > 0 ? (falseCount / total) * 100 : 0,
   };
 };
 
-const getMostFrequent = (
+const getTopFrequent = (
   values: unknown[],
-): { value: string | number | null; count: number } | undefined => {
-  const frequency = new Map<string, { original: unknown; count: number }>();
+  n: number,
+): ColumnStats['topFrequent'] => {
+  const frequency = new Map<string, { original: string | number | null; count: number }>();
 
   for (const value of values) {
     const key =
@@ -132,33 +142,27 @@ const getMostFrequent = (
     if (existing) {
       existing.count++;
     } else {
-      frequency.set(key, { original: value, count: 1 });
+      const original: string | number | null =
+        value === null || value === undefined
+          ? null
+          : typeof value === 'string' || typeof value === 'number'
+          ? value
+          : String(value);
+      frequency.set(key, { original, count: 1 });
     }
   }
 
-  let mostFrequent:
-    | { value: string | number | null; count: number }
-    | undefined;
-  let maxCount = 0;
-
-  frequency.forEach(entry => {
-    if (entry.count > maxCount) {
-      maxCount = entry.count;
-      mostFrequent = {
-        value: entry.original as string | number | null,
-        count: entry.count,
-      };
-    }
-  });
-
-  return mostFrequent;
+  return Array.from(frequency.values())
+    .sort((a, b) => b.count - a.count)
+    .slice(0, n)
+    .map(({ original, count }) => ({ value: original, count }));
 };
 
 export const computeStats = (
   data: QueryResultRow[],
   columns: core.Column[],
 ): ResultStats => {
-  if (!data || data.length === 0) {
+  if (data.length === 0) {
     return {
       rowCount: 0,
       columnCount: 0,
@@ -171,14 +175,15 @@ export const computeStats = (
 
   const columnStats: ColumnStats[] = columns.map(col => {
     const values = data.map(row => row[col.name]);
-    const nullCount = values.filter(
-      v => v === null || v === undefined,
-    ).length;
-    const nonNullValues = values.filter(v => v !== null && v !== undefined);
-    const distinctValues = new Set(nonNullValues.map(String));
+    const isString = col.type_generic === core.GenericDataType.String;
+    const isEmpty = (v: unknown) =>
+      v === null || v === undefined || (isString && typeof v === 'string' && v.trim() === '');
+    const emptyCount = values.filter(isEmpty).length;
+    const nonEmptyValues = values.filter(v => !isEmpty(v));
+    const distinctValues = new Set(nonEmptyValues.map(String));
 
     const typeGeneric = col.type_generic;
-    const mostFrequent = getMostFrequent(values);
+    const topFrequent = getTopFrequent(values, 1);
 
     let numericStats: NumericStats | undefined;
     let stringStats: StringStats | undefined;
@@ -187,7 +192,7 @@ export const computeStats = (
 
     switch (typeGeneric) {
       case core.GenericDataType.Numeric:
-        numericStats = getNumericStats(values);
+        numericStats = getNumericStats(values, rowCount);
         break;
       case core.GenericDataType.String:
         stringStats = getStringStats(values);
@@ -203,11 +208,11 @@ export const computeStats = (
     return {
       name: col.name,
       typeGeneric,
-      nullCount,
-      nullPercent: (nullCount / rowCount) * 100,
+      emptyCount,
+      emptyPercent: (emptyCount / rowCount) * 100,
       distinctCount: distinctValues.size,
       distinctPercent: (distinctValues.size / rowCount) * 100,
-      mostFrequent,
+      topFrequent,
       numericStats,
       stringStats,
       temporalStats,
