@@ -1,4 +1,4 @@
-import React, { useReducer, useEffect } from "react";
+import React, { useReducer, useEffect, useCallback } from "react";
 import {
   Modal,
   Input,
@@ -9,6 +9,7 @@ import {
   Typography,
   Space,
   Tooltip,
+  Spin,
   message,
 } from "antd";
 import {
@@ -40,6 +41,7 @@ const initialState: SnippetsState = {
   snippets: [],
   editingSnippet: null,
   isFormVisible: false,
+  loading: true,
 };
 
 function snippetsReducer(
@@ -67,6 +69,8 @@ function snippetsReducer(
       return { ...state, editingSnippet: action.payload };
     case "SET_FORM_VISIBLE":
       return { ...state, isFormVisible: action.payload };
+    case "SET_LOADING":
+      return { ...state, loading: action.payload };
     default:
       return state;
   }
@@ -84,15 +88,25 @@ export const SnippetsModal: React.FC<SnippetsModalProps> = ({
 
   // Load snippets on mount
   useEffect(() => {
-    dispatch({ type: "SET_SNIPPETS", payload: loadSnippets() });
+    let cancelled = false;
+    loadSnippets().then((snippets) => {
+      if (!cancelled) {
+        dispatch({ type: "SET_SNIPPETS", payload: snippets });
+        dispatch({ type: "SET_LOADING", payload: false });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  // Save snippets whenever they change
-  useEffect(() => {
-    if (state.snippets.length > 0 || localStorage.getItem("sqllab_snippets")) {
-      saveSnippets(state.snippets);
+  const persistSnippets = useCallback(async (snippets: Snippet[]) => {
+    try {
+      await saveSnippets(snippets);
+    } catch {
+      message.error("Failed to save snippets");
     }
-  }, [state.snippets]);
+  }, []);
 
   // Reset form when editing snippet changes
   useEffect(() => {
@@ -114,7 +128,9 @@ export const SnippetsModal: React.FC<SnippetsModalProps> = ({
   };
 
   const handleDelete = (id: string) => {
+    const updated = state.snippets.filter((s) => s.id !== id);
     dispatch({ type: "DELETE_SNIPPET", payload: id });
+    persistSnippets(updated);
     message.success("Snippet deleted");
   };
 
@@ -128,7 +144,7 @@ export const SnippetsModal: React.FC<SnippetsModalProps> = ({
     }
 
     if (!sql) {
-      message.error("Please enter SQL code");
+      message.error("Please enter snippet content");
       return;
     }
 
@@ -141,7 +157,11 @@ export const SnippetsModal: React.FC<SnippetsModalProps> = ({
         sql,
         updatedAt: now,
       };
+      const updated = state.snippets.map((s) =>
+        s.id === updatedSnippet.id ? updatedSnippet : s
+      );
       dispatch({ type: "UPDATE_SNIPPET", payload: updatedSnippet });
+      persistSnippets(updated);
       message.success("Snippet updated");
     } else {
       const newSnippet: Snippet = {
@@ -151,7 +171,9 @@ export const SnippetsModal: React.FC<SnippetsModalProps> = ({
         createdAt: now,
         updatedAt: now,
       };
+      const updated = [...state.snippets, newSnippet];
       dispatch({ type: "ADD_SNIPPET", payload: newSnippet });
+      persistSnippets(updated);
       message.success("Snippet created");
     }
 
@@ -165,7 +187,9 @@ export const SnippetsModal: React.FC<SnippetsModalProps> = ({
   };
 
   const handleInsert = (snippet: Snippet) => {
+    console.log("[Editor Snippets] handleInsert called:", snippet.name, snippet.sql);
     onInsert(snippet.sql);
+    console.log("[Editor Snippets] onInsert called, now calling onClose");
     onClose();
     message.success(`Inserted "${snippet.name}"`);
   };
@@ -181,7 +205,7 @@ export const SnippetsModal: React.FC<SnippetsModalProps> = ({
 
   return (
     <Modal
-      title="SQL Snippets"
+      title="Editor Snippets"
       open={visible}
       onCancel={onClose}
       width={600}
@@ -189,7 +213,18 @@ export const SnippetsModal: React.FC<SnippetsModalProps> = ({
       destroyOnHidden
       styles={{ body: { paddingTop: theme.paddingSM } }}
     >
-      {state.isFormVisible ? (
+      {state.loading ? (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "40px 0",
+          }}
+        >
+          <Spin size="default" />
+        </div>
+      ) : state.isFormVisible ? (
         <div>
           <div style={{ marginBottom: theme.marginSM }}>
             <Text
@@ -211,12 +246,12 @@ export const SnippetsModal: React.FC<SnippetsModalProps> = ({
               strong
               style={{ display: "block", marginBottom: theme.marginXS }}
             >
-              SQL
+              Content
             </Text>
             <TextArea
               value={snippetSql}
               onChange={(e) => setSnippetSql(e.target.value)}
-              placeholder="Enter SQL code..."
+              placeholder="Enter snippet content..."
               rows={8}
               style={{
                 fontFamily: theme.fontFamilyCode,

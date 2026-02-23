@@ -1,0 +1,3 @@
+apache-superset-core==0.0.1rc4
+flask==2.3.3
+flask-appbuilder==4.5.5

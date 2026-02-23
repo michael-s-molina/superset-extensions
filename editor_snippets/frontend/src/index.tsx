@@ -1,14 +1,14 @@
-import React from 'react';
-import ReactDOM from 'react-dom';
-import { core, commands, sqlLab, themeObject } from '@apache-superset/core';
-import { SnippetsModal } from './SnippetsModal';
+import React from "react";
+import ReactDOM from "react-dom";
+import { core, commands, sqlLab, themeObject } from "@apache-superset/core";
 
 const { SupersetThemeProvider } = themeObject;
+import { SnippetsModal } from "./SnippetsModal";
 
 async function insertSqlIntoEditor(sql: string): Promise<boolean> {
   const currentTab = sqlLab.getCurrentTab();
   if (!currentTab) {
-    console.error('[SQL Snippets] No active tab found');
+    console.error("[Editor Snippets] No active tab found");
     return false;
   }
 
@@ -19,13 +19,12 @@ async function insertSqlIntoEditor(sql: string): Promise<boolean> {
   return true;
 }
 
-// Modal container
 let modalContainer: HTMLDivElement | null = null;
 
 function showSnippetsModal() {
   if (!modalContainer) {
-    modalContainer = document.createElement('div');
-    modalContainer.id = 'sql-snippets-modal-container';
+    modalContainer = document.createElement("div");
+    modalContainer.id = "editor-snippets-modal-container";
     document.body.appendChild(modalContainer);
   }
 
@@ -59,16 +58,14 @@ function showSnippetsModal() {
 }
 
 export const activate = (context: core.ExtensionContext) => {
-  // Register the open snippets command
   context.disposables.push(
-    commands.registerCommand('sql_snippets.open', async () => {
+    commands.registerCommand("editor_snippets.open", async () => {
       showSnippetsModal();
     }),
   );
 };
 
 export const deactivate = () => {
-  // Clean up modal container
   if (modalContainer) {
     ReactDOM.unmountComponentAtNode(modalContainer);
     modalContainer.remove();

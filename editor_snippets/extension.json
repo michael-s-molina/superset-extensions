@@ -1,0 +1,37 @@
+{
+  "id": "editor_snippets",
+  "name": "Editor Snippets",
+  "version": "1.0.0",
+  "license": "Apache-2.0",
+  "frontend": {
+    "contributions": {
+      "commands": [
+        {
+          "command": "editor_snippets.open",
+          "icon": "ProfileOutlined",
+          "title": "Editor Snippets"
+        }
+      ],
+      "menus": {
+        "sqllab": {
+          "editor": {
+            "primary": [
+              {
+                "view": "sqllab.editor",
+                "command": "editor_snippets.open"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "moduleFederation": {
+      "exposes": ["./index"]
+    }
+  },
+  "backend": {
+    "entryPoints": ["editor_snippets.entrypoint"],
+    "files": ["backend/src/editor_snippets/**/*.py"]
+  },
+  "permissions": ["can_read", "can_write"]
+}
