@@ -12,6 +12,6 @@ dependencies = [
 
 [tool.apache_superset_extensions.build]
 include = [
-    "src/superset_extensions/michael_s_molina/sqllab_gsheets/**/*.py",
+    "src/michael_s_molina/sqllab_gsheets/**/*.py",
 ]
 exclude = []
