@@ -1,0 +1,11 @@
+{
+  "publisher": "michael-s-molina",
+  "name": "sqllab-gsheets",
+  "displayName": "Export SQL Lab to Google Sheets",
+  "version": "1.0.0",
+  "license": "Apache-2.0",
+  "permissions": [
+    "can_read",
+    "can_view"
+  ]
+}

@@ -1,0 +1,9 @@
+[project]
+name = "editor_snippets"
+version = "1.0.0"
+
+[tool.apache_superset_extensions.build]
+include = [
+    "src/superset_extensions/michael_s_molina/editor_snippets/**/*.py",
+]
+exclude = []

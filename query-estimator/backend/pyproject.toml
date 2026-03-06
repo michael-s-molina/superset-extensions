@@ -1,0 +1,17 @@
+[project]
+name = "query_estimator"
+version = "0.1.0"
+license = "Apache-2.0"
+description = "Query cost estimation for SQL Lab"
+dependencies = [
+    "apache-superset-core",
+]
+
+[project.optional-dependencies]
+dev = []
+
+[tool.apache_superset_extensions.build]
+include = [
+    "src/superset_extensions/michael_s_molina/query_estimator/**/*.py",
+]
+exclude = []
