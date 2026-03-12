@@ -20,10 +20,6 @@ logger = logging.getLogger(__name__)
 
 @api(id="sqllab_gsheets", name="SQL Lab Google Sheets Export")
 class GSheetsExportAPI(RestApi):
-    resource_name = "sqllab-gsheets"
-    openapi_spec_tag = "SQL Lab Google Sheets Export"
-    class_permission_name = "sqllab_gsheets"
-
     @expose("/export/", methods=("POST",))
     @protect()
     @permission_name("read")

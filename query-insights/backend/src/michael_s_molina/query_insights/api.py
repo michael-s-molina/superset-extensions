@@ -12,10 +12,6 @@ logger = logging.getLogger(__name__)
 
 @api(id="query_insights", name="Query Insights")
 class QueryInsightsAPI(RestApi):
-    resource_name = "query-insights"
-    openapi_spec_tag = "Query Insights"
-    class_permission_name = "query_insights"
-
     @expose("/metadata", methods=("POST",))
     @protect()
     @safe

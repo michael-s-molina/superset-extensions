@@ -15,10 +15,6 @@ RESOURCE_NAME = "editor_snippets"
 
 @api(id="editor_snippets", name="Editor Snippets")
 class EditorSnippetsAPI(RestApi):
-    resource_name = "editor-snippets"
-    openapi_spec_tag = "Editor Snippets"
-    class_permission_name = "editor_snippets"
-
     @expose("/", methods=("GET",))
     @protect()
     @safe

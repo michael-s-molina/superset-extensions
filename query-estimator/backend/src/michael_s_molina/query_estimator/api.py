@@ -39,10 +39,6 @@ logger = logging.getLogger(__name__)
 
 @api(id="query_estimator", name="Query Estimator")
 class QueryEstimatorAPI(RestApi):
-    resource_name = "query-estimator"
-    openapi_spec_tag = "Query Estimator"
-    class_permission_name = "query_estimator"
-
     @expose("/estimate", methods=("POST",))
     @protect()
     @permission_name("read")
