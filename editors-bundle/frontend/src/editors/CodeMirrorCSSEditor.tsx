@@ -1,4 +1,4 @@
-import React, { useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
+import React, { useRef, useCallback, useImperativeHandle, forwardRef, useEffect } from 'react';
 import CodeMirror, { ReactCodeMirrorRef, ViewUpdate } from '@uiw/react-codemirror';
 import { css } from '@codemirror/lang-css';
 import { EditorView } from '@codemirror/view';
@@ -12,6 +12,8 @@ type Position = editors.Position;
 type Selection = editors.Selection;
 type Range = editors.Range;
 type EditorAnnotation = editors.EditorAnnotation;
+type ContentChangeEvent = editors.ContentChangeEvent;
+type ContentChange = editors.ContentChange;
 
 const CodeMirrorCSSEditor = forwardRef<EditorHandle, EditorProps>(
   (
@@ -31,6 +33,7 @@ const CodeMirrorCSSEditor = forwardRef<EditorHandle, EditorProps>(
     ref,
   ) => {
     const editorRef = useRef<ReactCodeMirrorRef>(null);
+    const contentListenersRef = useRef<Set<(e: ContentChangeEvent) => void>>(new Set());
 
     // Helper to get EditorView
     const getView = () => editorRef.current?.view;
@@ -122,6 +125,13 @@ const CodeMirrorCSSEditor = forwardRef<EditorHandle, EditorProps>(
           return { dispose: () => {} };
         },
         resize: () => getView()?.requestMeasure(),
+        onDidChangeContent: (listener, thisArgs?) => {
+          const bound = (thisArgs ? listener.bind(thisArgs) : listener) as (
+            e: ContentChangeEvent,
+          ) => void;
+          contentListenersRef.current.add(bound);
+          return { dispose: () => { contentListenersRef.current.delete(bound); } };
+        },
       }),
       [],
     );
@@ -142,6 +152,21 @@ const CodeMirrorCSSEditor = forwardRef<EditorHandle, EditorProps>(
 
     const handleUpdate = useCallback(
       (viewUpdate: ViewUpdate) => {
+        if (viewUpdate.docChanged && contentListenersRef.current.size > 0) {
+          const changes: ContentChange[] = [];
+          viewUpdate.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
+            changes.push({
+              rangeOffset: fromA,
+              rangeLength: toA - fromA,
+              text: inserted.toString(),
+            });
+          });
+          const event: ContentChangeEvent = {
+            getValue: () => viewUpdate.state.doc.toString(),
+            changes,
+          };
+          contentListenersRef.current.forEach(listener => listener(event));
+        }
         if (viewUpdate.selectionSet && onCursorPositionChange) {
           const pos = viewUpdate.view.state.selection.main.head;
           const line = viewUpdate.view.state.doc.lineAt(pos);

@@ -12,6 +12,8 @@ type Position = editors.Position;
 type Selection = editors.Selection;
 type Range = editors.Range;
 type EditorAnnotation = editors.EditorAnnotation;
+type ContentChangeEvent = editors.ContentChangeEvent;
+type ContentChange = editors.ContentChange;
 
 const SimpleMDEEditor = forwardRef<EditorHandle, EditorProps>(
   (
@@ -29,6 +31,7 @@ const SimpleMDEEditor = forwardRef<EditorHandle, EditorProps>(
     const editorInstanceRef = useRef<EasyMDE | null>(null);
     const valueRef = useRef(value);
     valueRef.current = value;
+    const contentListenersRef = useRef<Set<(e: ContentChangeEvent) => void>>(new Set());
 
     // Get CodeMirror instance from EasyMDE
     const getCodemirror = () => editorInstanceRef.current?.codemirror;
@@ -97,6 +100,13 @@ const SimpleMDEEditor = forwardRef<EditorHandle, EditorProps>(
         clearAnnotations: () => {},
         registerCompletionProvider: () => ({ dispose: () => {} }),
         resize: () => {},
+        onDidChangeContent: (listener, thisArgs?) => {
+          const bound = (thisArgs ? listener.bind(thisArgs) : listener) as (
+            e: ContentChangeEvent,
+          ) => void;
+          contentListenersRef.current.add(bound);
+          return { dispose: () => { contentListenersRef.current.delete(bound); } };
+        },
       }),
       [],
     );
@@ -118,9 +128,24 @@ const SimpleMDEEditor = forwardRef<EditorHandle, EditorProps>(
     const getMdeInstanceCallback = useCallback((instance: EasyMDE) => {
       editorInstanceRef.current = instance;
 
-      // Set up blur listener
       const cm = instance.codemirror;
       cm.on('blur', handleBlur);
+      cm.on('change', (cmInstance: CodeMirror.Editor, changeObj: CodeMirror.EditorChangeLinkedList) => {
+        if (contentListenersRef.current.size === 0) return;
+        const rangeOffset = cmInstance.indexFromPos(changeObj.from);
+        const removed = changeObj.removed?.join('\n') ?? '';
+        const inserted = changeObj.text.join('\n');
+        const change: ContentChange = {
+          rangeOffset,
+          rangeLength: removed.length,
+          text: inserted,
+        };
+        const event: ContentChangeEvent = {
+          getValue: () => cmInstance.getValue(),
+          changes: [change],
+        };
+        contentListenersRef.current.forEach(listener => listener(event));
+      });
     }, [handleBlur]);
 
     // Calculate numeric height

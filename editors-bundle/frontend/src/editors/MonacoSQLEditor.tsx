@@ -14,6 +14,7 @@ type EditorAnnotation = editors.EditorAnnotation;
 type CompletionProvider = editors.CompletionProvider;
 type CompletionItem = editors.CompletionItem;
 type EditorHotkey = editors.EditorHotkey;
+type ContentChangeEvent = editors.ContentChangeEvent;
 
 const MonacoSQLEditor = forwardRef<EditorHandle, EditorProps>(
   (
@@ -163,6 +164,24 @@ const MonacoSQLEditor = forwardRef<EditorHandle, EditorProps>(
           return { dispose: () => disposable.dispose() };
         },
         resize: () => editorRef.current?.layout(),
+        onDidChangeContent: (listener, thisArgs?) => {
+          const monacoEditor = editorRef.current;
+          if (!monacoEditor) return { dispose: () => {} };
+          const bound = (thisArgs ? listener.bind(thisArgs) : listener) as (
+            e: ContentChangeEvent,
+          ) => void;
+          const disposable = monacoEditor.onDidChangeModelContent(e => {
+            bound({
+              getValue: () => monacoEditor.getValue(),
+              changes: e.changes.map(c => ({
+                rangeOffset: c.rangeOffset,
+                rangeLength: c.rangeLength,
+                text: c.text,
+              })),
+            });
+          });
+          return { dispose: () => disposable.dispose() };
+        },
       }),
       [],
     );
@@ -213,6 +232,7 @@ const MonacoSQLEditor = forwardRef<EditorHandle, EditorProps>(
                     clearAnnotations: () => {},
                     registerCompletionProvider: () => ({ dispose: () => {} }),
                     resize: () => editorInstance.layout(),
+                    onDidChangeContent: () => ({ dispose: () => {} }),
                   };
                   hotkey.exec(handle);
                 },
