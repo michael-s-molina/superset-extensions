@@ -5,6 +5,7 @@ from flask import request, Response
 from flask_appbuilder.api import expose, permission_name, protect, safe
 from flask_login import current_user
 from superset_core.common.daos import KeyValueDAO
+from superset_core.common.models import get_session
 from superset_core.rest_api.api import RestApi
 from superset_core.rest_api.decorators import api
 
@@ -32,7 +33,7 @@ class EditorSnippetsAPI(RestApi):
             if entry is None:
                 return self.response(200, snippets=[])
 
-            snippets = json.loads(entry.value)
+            snippets = json.loads(entry.value.decode("utf-8"))
             return self.response(200, snippets=snippets)
         except Exception as e:
             logger.exception("Failed to load snippets: %s", str(e))
@@ -49,7 +50,7 @@ class EditorSnippetsAPI(RestApi):
 
         try:
             snippets = request.json.get("snippets", [])
-            value = json.dumps(snippets)
+            value = json.dumps(snippets).encode("utf-8")
 
             entry = KeyValueDAO.find_one_or_none(
                 resource=RESOURCE_NAME, created_by_fk=user_id
@@ -66,6 +67,7 @@ class EditorSnippetsAPI(RestApi):
                     }
                 )
 
+            get_session().commit()
             return self.response(200, message="Snippets saved")
         except Exception as e:
             logger.exception("Failed to save snippets: %s", str(e))

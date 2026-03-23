@@ -1,7 +1,7 @@
 import { authentication } from '@apache-superset/core';
 import { Snippet } from './types';
 
-const SNIPPETS_ENDPOINT = '/extensions/michael-s-molina/editor-snippets';
+const SNIPPETS_ENDPOINT = '/extensions/michael-s-molina/editor-snippets/';
 
 export async function loadSnippets(): Promise<Snippet[]> {
   try {
