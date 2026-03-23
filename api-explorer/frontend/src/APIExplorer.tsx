@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { commands, sqlLab } from "@apache-superset/core";
+import { commands, sqlLab, theme } from "@apache-superset/core";
+
+const { useTheme } = theme;
 
 export interface Interaction {
   type: "command" | "event";
@@ -38,6 +40,7 @@ function useLastInteraction() {
 export function APIExplorer() {
   const lastInteraction = useLastInteraction();
   const [loading, setLoading] = useState<string | null>(null);
+  const t = useTheme();
 
   useEffect(() => {
     const disposables: Array<{ dispose: () => void }> = [];
@@ -200,10 +203,10 @@ export function APIExplorer() {
 
   const getTypeColor = (interaction: Interaction) => {
     if (interaction.error)
-      return { bg: "#fef2f2", border: "#fecaca", text: "#dc2626" };
+      return { bg: t.colorErrorBg, border: t.colorErrorBorder, text: t.colorError };
     if (interaction.type === "event")
-      return { bg: "#eff6ff", border: "#bfdbfe", text: "#2563eb" };
-    return { bg: "#f0fdf4", border: "#bbf7d0", text: "#16a34a" };
+      return { bg: t.colorInfoBg, border: t.colorInfoBorder, text: t.colorInfo };
+    return { bg: t.colorSuccessBg, border: t.colorSuccessBorder, text: t.colorSuccess };
   };
 
   return (
@@ -226,7 +229,7 @@ export function APIExplorer() {
           style={{
             fontSize: "11px",
             fontWeight: 600,
-            color: "#6b7280",
+            color: t.colorTextTertiary,
             textTransform: "uppercase",
             letterSpacing: "0.05em",
             marginBottom: "8px",
@@ -253,21 +256,21 @@ export function APIExplorer() {
                 padding: "8px 12px",
                 border: "none",
                 borderRadius: "8px",
-                backgroundColor: loading === cmd.id ? "#e5e7eb" : "#f3f4f6",
+                backgroundColor: loading === cmd.id ? t.colorFillSecondary : t.colorFillTertiary,
                 cursor: loading === cmd.id ? "wait" : "pointer",
                 fontSize: "13px",
                 fontWeight: 500,
-                color: "#374151",
+                color: t.colorText,
                 transition: "all 0.15s ease",
               }}
               onMouseEnter={(e) => {
                 if (loading !== cmd.id) {
-                  e.currentTarget.style.backgroundColor = "#e5e7eb";
+                  e.currentTarget.style.backgroundColor = t.colorFillSecondary;
                 }
               }}
               onMouseLeave={(e) => {
                 if (loading !== cmd.id) {
-                  e.currentTarget.style.backgroundColor = "#f3f4f6";
+                  e.currentTarget.style.backgroundColor = t.colorFillTertiary;
                 }
               }}
             >
@@ -299,7 +302,7 @@ export function APIExplorer() {
           style={{
             fontSize: "11px",
             fontWeight: 600,
-            color: "#6b7280",
+            color: t.colorTextTertiary,
             textTransform: "uppercase",
             letterSpacing: "0.05em",
             marginBottom: "12px",
@@ -311,9 +314,9 @@ export function APIExplorer() {
         {lastInteraction ? (
           <div
             style={{
-              backgroundColor: "#fff",
+              backgroundColor: t.colorBgContainer,
               borderRadius: "12px",
-              border: "1px solid #e5e7eb",
+              border: `1px solid ${t.colorBorderSecondary}`,
               overflow: "hidden",
               boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
               flex: 1,
@@ -325,11 +328,11 @@ export function APIExplorer() {
             <div
               style={{
                 padding: "12px 16px",
-                borderBottom: "1px solid #e5e7eb",
+                borderBottom: `1px solid ${t.colorBorderSecondary}`,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
-                backgroundColor: "#fafafa",
+                backgroundColor: t.colorFillAlter,
               }}
             >
               <div
@@ -357,7 +360,7 @@ export function APIExplorer() {
                     fontFamily: "Monaco, Consolas, monospace",
                     fontSize: "13px",
                     fontWeight: 600,
-                    color: "#111827",
+                    color: t.colorText,
                   }}
                 >
                   {lastInteraction.name}
@@ -366,7 +369,7 @@ export function APIExplorer() {
               <span
                 style={{
                   fontSize: "12px",
-                  color: "#9ca3af",
+                  color: t.colorTextTertiary,
                   fontVariantNumeric: "tabular-nums",
                 }}
               >
@@ -386,7 +389,7 @@ export function APIExplorer() {
                 style={{
                   fontSize: "10px",
                   fontWeight: 600,
-                  color: "#9ca3af",
+                  color: t.colorTextTertiary,
                   textTransform: "uppercase",
                   letterSpacing: "0.05em",
                   marginBottom: "12px",
@@ -398,11 +401,11 @@ export function APIExplorer() {
               <div
                 style={{
                   backgroundColor: lastInteraction.error
-                    ? "#fef2f2"
-                    : "#f8fafc",
+                    ? t.colorErrorBg
+                    : t.colorFillAlter,
                   borderRadius: "8px",
                   border: `1px solid ${
-                    lastInteraction.error ? "#fecaca" : "#e2e8f0"
+                    lastInteraction.error ? t.colorErrorBorder : t.colorBorderSecondary
                   }`,
                   overflow: "auto",
                   padding: "8px",
@@ -415,7 +418,7 @@ export function APIExplorer() {
                     fontFamily: "Monaco, Consolas, 'Courier New', monospace",
                     fontSize: "12px",
                     lineHeight: 1.6,
-                    color: lastInteraction.error ? "#dc2626" : "#334155",
+                    color: lastInteraction.error ? t.colorError : t.colorText,
                     whiteSpace: "pre-wrap",
                     wordBreak: "break-word",
                     background: "transparent",
@@ -436,10 +439,10 @@ export function APIExplorer() {
               flexDirection: "column",
               alignItems: "center",
               justifyContent: "center",
-              backgroundColor: "#fff",
+              backgroundColor: t.colorBgContainer,
               borderRadius: "12px",
-              border: "1px dashed #d1d5db",
-              color: "#9ca3af",
+              border: `1px dashed ${t.colorBorder}`,
+              color: t.colorTextTertiary,
               gap: "8px",
             }}
           >
@@ -447,7 +450,7 @@ export function APIExplorer() {
             <span style={{ fontSize: "13px" }}>
               Waiting for interactions...
             </span>
-            <span style={{ fontSize: "12px", color: "#d1d5db" }}>
+            <span style={{ fontSize: "12px", color: t.colorTextQuaternary }}>
               Click an API button or trigger an event in SQL Lab
             </span>
           </div>

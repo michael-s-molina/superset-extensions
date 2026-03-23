@@ -1,6 +1,8 @@
 import React, { useEffect, useReducer, useRef } from 'react';
 import { Alert, Spin } from 'antd';
-import { authentication, sqlLab } from '@apache-superset/core';
+import { authentication, sqlLab, theme } from '@apache-superset/core';
+
+const { useTheme } = theme;
 import Table from './Table';
 import { TableMetadata, QueryState, QueryAction } from './types';
 
@@ -132,6 +134,7 @@ const initialQueryState: ExtendedQueryState = {
 };
 
 const Main: React.FC = () => {
+  const t = useTheme();
   const [state, dispatch] = useReducer(queryReducer, initialQueryState);
   const [isPanelActive, setIsPanelActive] = React.useState(false);
   const isPanelActiveRef = useRef(false);
@@ -315,7 +318,7 @@ const Main: React.FC = () => {
         }}
       >
         <Spin size="default" />
-        <div style={{ marginLeft: '8px', color: '#666', fontSize: '14px' }}>
+        <div style={{ marginLeft: '8px', color: t.colorTextSecondary, fontSize: '14px' }}>
           Loading...
         </div>
       </div>
