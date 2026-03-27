@@ -60,7 +60,7 @@ module.exports = (env, argv) => {
         (resource) => { resource.request = resource.request.replace(/^node:/, ""); },
       ),
       new ModuleFederationPlugin({
-        name: "michaelSMolina_queryStatements",
+        name: "michaelSMolina_queryOutline",
         filename: "remoteEntry.[contenthash].js",
         exposes: {
           "./index": "./src/index.tsx",

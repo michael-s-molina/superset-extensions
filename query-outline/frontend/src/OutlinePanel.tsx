@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Button, Empty, Tooltip, Spin } from "antd";
-import { PlayCircleOutlined, CopyOutlined, CheckOutlined, ExportOutlined } from "@ant-design/icons";
+import { PlayCircleOutlined, PlaySquareOutlined, CopyOutlined, CheckOutlined, ExportOutlined } from "@ant-design/icons";
 import { sqlLab, theme, common } from "@apache-superset/core";
-import { parseStatements, getStatementType, SqlStatement } from "./sqlParser";
+import { parseStatements, SqlStatement } from "./sqlParser";
 
 type Disposable = common.Disposable;
 
@@ -41,6 +41,7 @@ function getBadgeColors(type: string, t: theme.SupersetTheme): BadgeColors {
     case "DROP":
     case "TRUNCATE": return { bg: t.colorError,   color: solid };
     case "CREATE":   return { bg: t.colorInfo,    color: solid };
+    case "CTE":      return { bg: t.colorTextTertiary, color: solid };
     default:         return { bg: t.colorFillSecondary, color: t.colorTextSecondary };
   }
 }
@@ -51,10 +52,11 @@ function getPreview(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
-const QueryStatementsPanel: React.FC = () => {
+const OutlinePanel: React.FC = () => {
   const antdTheme = useTheme();
   const [statements, setStatements] = useState<SqlStatement[]>([]);
   const [executingIndex, setExecutingIndex] = useState<number | null>(null);
+  const [executingUpToIndex, setExecutingUpToIndex] = useState<number | null>(null);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   // Holds the onDidChangeContent subscription for the current tab's editor
@@ -149,6 +151,22 @@ const QueryStatementsPanel: React.FC = () => {
     [],
   );
 
+  const handleExecuteUpTo = useCallback(
+    async (e: React.MouseEvent, stmt: SqlStatement) => {
+      e.stopPropagation();
+      setExecutingUpToIndex(stmt.index);
+      try {
+        for (const s of statements.slice(0, stmt.index + 1)) {
+          await sqlLab.executeQuery({ sql: s.cumulativeText });
+        }
+        await sqlLab.setActivePanel("Results");
+      } finally {
+        setExecutingUpToIndex(null);
+      }
+    },
+    [statements],
+  );
+
   const handleExecute = useCallback(
     async (e: React.MouseEvent, stmt: SqlStatement) => {
       e.stopPropagation();
@@ -167,8 +185,9 @@ const QueryStatementsPanel: React.FC = () => {
   const maxEndLine = statements.length > 0
     ? Math.max(...statements.map(s => s.endLine + 1))
     : 1;
-  // Width for "DDDD–DDDD": digits on each side + em dash + small buffer
-  const lineNumWidth = `${String(maxEndLine).length * 2 + 1}ch`;
+  // Width for "DDDD–DDDD": two numbers of equal digit length + em dash
+  const digits = String(maxEndLine).length;
+  const lineNumWidth = `${digits * 2 + 1}ch`;
 
   return (
     <div style={{ height: "100%", overflowY: "auto" }}>
@@ -189,10 +208,11 @@ const QueryStatementsPanel: React.FC = () => {
       ) : (
         <>
           {statements.map((stmt) => {
-            const type = getStatementType(stmt.text);
+            const type = stmt.type;
             const badge = getBadgeColors(type, antdTheme);
             const isHovered = hoveredIndex === stmt.index;
             const isExecuting = executingIndex === stmt.index;
+            const isExecutingUpTo = executingUpToIndex === stmt.index;
             const isCopied = copiedIndex === stmt.index;
 
             return (
@@ -220,7 +240,7 @@ const QueryStatementsPanel: React.FC = () => {
                     flexShrink: 0,
                     width: lineNumWidth,
                     fontSize: antdTheme.fontSizeSM,
-                    color: antdTheme.colorTextQuaternary,
+                    color: antdTheme.colorTextTertiary,
                     textAlign: "right",
                     userSelect: "none",
                   }}
@@ -233,6 +253,7 @@ const QueryStatementsPanel: React.FC = () => {
                 <span
                   style={{
                     flexShrink: 0,
+                    width: "5.5em",
                     fontSize: 10,
                     fontWeight: 600,
                     background: badge.bg,
@@ -241,6 +262,7 @@ const QueryStatementsPanel: React.FC = () => {
                     padding: "1px 5px",
                     lineHeight: "18px",
                     letterSpacing: "0.03em",
+                    textAlign: "center",
                     userSelect: "none",
                   }}
                 >
@@ -260,15 +282,23 @@ const QueryStatementsPanel: React.FC = () => {
                     marginTop: 2,
                   }}
                 >
-                  {getPreview(stmt.text)}
+                  {getPreview(stmt.displayText)}
                 </span>
 
                 <ActionButton
                   tooltip="Execute this statement"
                   icon={isExecuting ? <Spin size="small" /> : <PlayCircleOutlined />}
                   color={antdTheme.colorPrimary}
-                  disabled={isExecuting}
+                  disabled={isExecuting || executingUpToIndex !== null}
                   onClick={(e) => handleExecute(e, stmt)}
+                />
+
+                <ActionButton
+                  tooltip="Execute from first statement to here"
+                  icon={isExecutingUpTo ? <Spin size="small" /> : <PlaySquareOutlined />}
+                  color={antdTheme.colorPrimary}
+                  disabled={isExecutingUpTo || executingIndex !== null}
+                  onClick={(e) => handleExecuteUpTo(e, stmt)}
                 />
 
                 <ActionButton
@@ -293,4 +323,4 @@ const QueryStatementsPanel: React.FC = () => {
   );
 };
 
-export default QueryStatementsPanel;
+export default OutlinePanel;
