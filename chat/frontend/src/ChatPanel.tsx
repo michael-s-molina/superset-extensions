@@ -25,6 +25,11 @@ let nextKey = 1;
 // below doesn't open an XSS hole even though the content originates from an LLM.
 const md = new MarkdownIt({ html: false, breaks: true, linkify: true });
 
+// Feature-detected once at module load rather than in state — support
+// doesn't change over the component's lifetime, so there's nothing to react to.
+const SpeechRecognitionCtor: any =
+  typeof window !== "undefined" ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition : undefined;
+
 function renderMarkdown(content: unknown): React.ReactNode {
   return (
     <div
@@ -183,6 +188,13 @@ export default function ChatPanel() {
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<chat.DisplayMode>(chat.getDisplayMode());
   const abortControllerRef = useRef<AbortController | null>(null);
+  // null means "not currently recalling history" — distinct from index 0,
+  // which is the oldest message.
+  const historyIndexRef = useRef<number | null>(null);
+  const userHistory = useMemo(
+    () => messages.filter((m) => m.role === "user").map((m) => String(m.content ?? "")),
+    [messages],
+  );
   const dashboardTools = useDashboardTools();
   const dashboardToolSpecs = useMemo<ToolSpec[]>(
     () =>
@@ -198,6 +210,78 @@ export default function ChatPanel() {
     const { dispose } = chat.onDidChangeDisplayMode((m) => setMode(m));
     return dispose;
   }, []);
+
+  const [recording, setRecording] = useState(false);
+  const recognitionRef = useRef<any>(null);
+  const keepListeningRef = useRef(false);
+  const baseValueRef = useRef("");
+  const finalTranscriptRef = useRef("");
+
+  useEffect(() => {
+    return () => {
+      keepListeningRef.current = false;
+      recognitionRef.current?.stop();
+    };
+  }, []);
+
+  function startRecording() {
+    if (!SpeechRecognitionCtor || recognitionRef.current) return;
+
+    baseValueRef.current = value;
+    finalTranscriptRef.current = "";
+    keepListeningRef.current = true;
+
+    const recognition = new SpeechRecognitionCtor();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = navigator.language;
+
+    recognition.onresult = (event: any) => {
+      let interim = "";
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const result = event.results[i];
+        if (result.isFinal) {
+          finalTranscriptRef.current += `${result[0].transcript} `;
+        } else {
+          interim += result[0].transcript;
+        }
+      }
+      const base = baseValueRef.current;
+      const separator = base && !base.endsWith(" ") ? " " : "";
+      setValue(`${base}${separator}${finalTranscriptRef.current}${interim}`);
+    };
+
+    recognition.onerror = (event: any) => {
+      // Only these two mean the user can't dictate at all — anything else
+      // (e.g. transient "no-speech" or "network") is left to the onend
+      // auto-restart below instead of killing the session.
+      if (event.error === "not-allowed" || event.error === "audio-capture") {
+        keepListeningRef.current = false;
+      }
+    };
+
+    recognition.onend = () => {
+      // continuous=true keeps the mic open across pauses in speech, but
+      // some browsers still silently end the session on their own (long
+      // silences, brief network hiccups) — restart transparently so the
+      // user doesn't have to notice or re-click the mic mid-sentence.
+      if (keepListeningRef.current) {
+        recognition.start();
+      } else {
+        setRecording(false);
+        recognitionRef.current = null;
+      }
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
+    setRecording(true);
+  }
+
+  function stopRecording() {
+    keepListeningRef.current = false;
+    recognitionRef.current?.stop();
+  }
 
   const roles: Record<
     string,
@@ -223,6 +307,8 @@ export default function ChatPanel() {
 
   async function handleSubmit(text: string) {
     if (!text.trim() || loading) return;
+    stopRecording();
+    historyIndexRef.current = null;
 
     const history: ChatTurn[] = [
       ...messages.map((m) => ({ role: String(m.role), content: String(m.content ?? "") })),
@@ -282,6 +368,34 @@ export default function ChatPanel() {
 
   function handleCancel() {
     abortControllerRef.current?.abort();
+  }
+
+  // Only recalls history when the box is empty (or already mid-recall) —
+  // otherwise ArrowUp/Down keep their normal job of moving the cursor
+  // within whatever the user is typing.
+  function handleSenderKeyDown(e: React.KeyboardEvent) {
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+
+    const navigating = historyIndexRef.current !== null;
+    if (!navigating && value !== "") return;
+
+    if (e.key === "ArrowUp") {
+      if (userHistory.length === 0) return;
+      const nextIndex = navigating ? Math.max(historyIndexRef.current! - 1, 0) : userHistory.length - 1;
+      historyIndexRef.current = nextIndex;
+      setValue(userHistory[nextIndex]);
+      e.preventDefault();
+    } else if (navigating) {
+      const nextIndex = historyIndexRef.current! + 1;
+      if (nextIndex >= userHistory.length) {
+        historyIndexRef.current = null;
+        setValue("");
+      } else {
+        historyIndexRef.current = nextIndex;
+        setValue(userHistory[nextIndex]);
+      }
+      e.preventDefault();
+    }
   }
 
   function toggleMode() {
@@ -383,9 +497,14 @@ export default function ChatPanel() {
           onChange={setValue}
           onSubmit={handleSubmit}
           onCancel={handleCancel}
+          onKeyDown={handleSenderKeyDown}
           loading={loading}
           placeholder="Type a message…"
           styles={SENDER_STYLES}
+          allowSpeech={{
+            recording,
+            onRecordingChange: (next) => (next ? startRecording() : stopRecording()),
+          }}
         />
       </div>
     </div>
