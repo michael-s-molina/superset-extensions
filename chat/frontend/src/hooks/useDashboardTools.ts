@@ -16,29 +16,50 @@ export interface ClientTool {
 const emptyInputSchema = { type: "object" as const, properties: {} };
 
 // Shared placement fields — how a block sits within its *parent's* grid.
-// Applies to any block_type. col_span/row_span default to the parent's full
-// column count / 1 row when omitted, so leaving them unset always renders
-// something, but that default is a full-width, single-row-tall block — set
-// them explicitly for anything that needs real height or a multi-column
-// layout (e.g. an executive report's side-by-side KPI tiles).
+// There is exactly one grid in a dashboard: the root's. col_span/col/row are
+// only meaningful when the parent IS the root — a 'tabs', 'tab',
+// 'collapsible', 'carousel', or 'slide' parent has no grid of its own (its
+// children stack and flow, not positioned), so those three are simply
+// ignored when adding into one — don't bother setting them in that case.
+// col_span defaults to the root's full column count when omitted, so leaving
+// it unset always renders something reasonable — set it explicitly only for
+// a multi-column layout (e.g. an executive report's side-by-side KPI tiles).
+//
+// row_span is NOT like the other three: it is never ignored. On the root
+// it's a row-track count (defaulting to 1, a single row unit — visually very
+// short) — but a flow parent ('tabs'/'tab'/'collapsible'/'carousel'/'slide')
+// reads the exact same field as a literal pixel height instead, and when
+// it's left unset there, the child flexes to fill whatever room the
+// container actually has. Passing a small root-tuned number like 10-14 into
+// a flow parent renders a 10-14 *pixel* tall sliver, not a comfortably sized
+// block — the single most common way a block placed inside a tab/collapsible/
+// carousel ends up looking broken. Leave row_span unset entirely for a block
+// whose parent is a 'tabs', 'tab', 'collapsible', 'carousel', or 'slide'.
 const placementSchemaProperties = {
   col_span: {
     type: "number" as const,
     description:
-      "How many of the parent canvas's columns this block spans (parent canvases " +
-      "default to 24 columns). Defaults to the parent's full column count if " +
-      "omitted, meaning this block takes the whole row by itself. To place several " +
-      "blocks side by side in one row, give each a col_span that divides the " +
-      "parent's column count between them (e.g. three tiles at col_span 8 each " +
-      "fill a 24-column row).",
+      "How many of the root's columns this block spans (the root defaults to 24 " +
+      "columns). Defaults to the full column count if omitted, meaning this block " +
+      "takes the whole row by itself. To place several blocks side by side in one " +
+      "row, give each a col_span that divides the column count between them (e.g. " +
+      "three tiles at col_span 8 each fill a 24-column row). Ignored if the parent " +
+      "is a 'tabs', 'tab', 'collapsible', 'carousel', or 'slide' block — those have " +
+      "no grid to span.",
   },
   row_span: {
     type: "number" as const,
     description:
-      "How many row tracks this block spans. Defaults to 1 if omitted, which is a " +
-      "single row unit — visually very short. Set this explicitly for any block " +
-      "that needs real height: roughly 10-14 for a normal chart, more for a large " +
-      "hero chart or a tall markdown block.",
+      "How many row tracks this block spans, but ONLY when the parent is the root " +
+      "grid. Defaults to 1 row track if omitted there, which is visually very short " +
+      "— set this explicitly for a root-level block that needs real height: roughly " +
+      "10-14 for a normal chart, more for a large hero chart or a tall markdown " +
+      "block. If the parent is instead a 'tabs', 'tab', 'collapsible', 'carousel', " +
+      "or 'slide' block, DO NOT set row_span at all: that parent has no grid, so it " +
+      "reads this same field as a literal pixel height rather than a row count, and " +
+      "a root-tuned number like 10-14 would render as a 10-14 pixel sliver. Leaving " +
+      "row_span unset there makes the block flex to fill the container's own " +
+      "available height instead — almost always what you want.",
   },
   col: {
     type: "number" as const,
@@ -53,7 +74,9 @@ const placementSchemaProperties = {
       "whichever you added most recently, UNLESS you passed add_dashboard_building_block " +
       "an index placing it earlier than the existing sibling, in which case the " +
       "EXISTING one is what gets pushed. Either way, blocks never end up stuck " +
-      "rendering on top of each other.",
+      "rendering on top of each other. Ignored if the parent is a 'tabs', 'tab', " +
+      "'collapsible', 'carousel', or 'slide' block — those have no grid to place " +
+      "into.",
   },
   row: {
     type: "number" as const,
@@ -61,31 +84,27 @@ const placementSchemaProperties = {
   },
 };
 
-// Container grid config — only meaningful when block_type is 'canvas', since
-// only a canvas holds children of its own to lay out.
-const containerSchemaProperties = {
+// The root's own grid config. There is exactly one grid in a dashboard — the
+// root's — so these are never passed to add_dashboard_building_block (there
+// is nothing left to create one of); they're only ever read/updated on the
+// root itself, via update_dashboard_layout with the root's own node id.
+const rootGridSchemaProperties = {
   columns: {
     type: "number" as const,
     description:
-      "Number of equal columns this canvas divides itself into for its own " +
-      "children. Only used when block_type is 'canvas'. Defaults to 24.",
+      "Number of equal columns the root divides itself into for its own " +
+      "children. Defaults to 24.",
   },
   gap: {
     type: "number" as const,
-    description: "Gap between this canvas's children, in pixels. Only used when block_type is 'canvas'.",
+    description: "Gap between the root's children, in pixels.",
   },
   row_unit: {
     type: "number" as const,
     description:
-      "Pixel height of one row track for this canvas's own children. Rows are " +
+      "Pixel height of one row track for the root's own children. Rows are " +
       "created on demand, never predivided from a fixed total, so this only sets " +
-      "how tall each one is. Only used when block_type is 'canvas'. Leave this " +
-      "unset unless you actually need a different row height than the parent's — " +
-      "a custom row_unit here is independent of the row_span you gave this same " +
-      "canvas in its own parent (that row_span was sized against the PARENT's row " +
-      "unit, not this one), so picking a custom row_unit without separately working " +
-      "out a matching row_span risks this canvas's own content ending up taller or " +
-      "shorter than the box it was placed in.",
+      "how tall each one is.",
   },
 };
 
@@ -260,8 +279,14 @@ const metricTileSchemaProperties = {
   label: {
     type: "string" as const,
     description:
-      "Text shown below the number, e.g. 'Revenue'. Defaults to the metric's own " +
-      "label/name from data_binding if omitted. Only used when block_type is 'metric-tile'.",
+      "For block_type 'metric-tile': text shown below the number, e.g. 'Revenue'. " +
+      "Defaults to the metric's own label/name from data_binding if omitted. " +
+      "For block_type 'tab' or 'slide': the pane's own title, e.g. 'Overview' — " +
+      "REQUIRED in both cases, since neither has data to name itself from. For " +
+      "'slide', this is used for the outline/properties panel only — the carousel's " +
+      "own on-canvas navigation is a plain row of dots with no visible labels. For " +
+      "'collapsible', an optional title shown in its header; leave unset for no title " +
+      "there at all.",
   },
   prefix: {
     type: "string" as const,
@@ -315,7 +340,14 @@ const addBuildingBlockSchema = {
   properties: {
     parent_id: {
       type: "string" as const,
-      description: "Id of an existing canvas node to add this block into",
+      description:
+        "Id of an existing container node to add this block into — the dashboard root " +
+        "(always a grid), a 'tabs' block (to add another tab), a 'tab' pane (to add " +
+        "content inside that tab), a 'collapsible' block (to add its one child — meant " +
+        "to hold exactly one; nothing stops you from adding a second, but the UI's own " +
+        "drag-and-drop only allows one, so don't), a 'carousel' block (to add another " +
+        "slide), or a 'slide' pane (to add content inside that slide). There is no way " +
+        "to create a second grid — the root is the only one a dashboard ever has.",
     },
     index: {
       type: "number" as const,
@@ -324,28 +356,58 @@ const addBuildingBlockSchema = {
     block_type: {
       type: "string" as const,
       description:
-        "'canvas' for a layout container that can hold other blocks, 'markdown' for a " +
-        "text block, 'echarts' for a chart using an ECharts spec (requires data_binding " +
-        "and echarts_options), 'vega-lite' for a chart using a Vega-Lite spec (requires " +
-        "data_binding and vega_lite_spec), 'ag-grid-table' for a data table (requires " +
-        "data_binding; column_defs is optional — omit it to auto-derive one column per " +
-        "query result column), or 'metric-tile' for a single live \"big number\" (requires " +
-        "data_binding resolving to one metric with no dimensions; label/prefix/suffix/" +
-        "decimals/delta are all optional). Prefer 'metric-tile' over an echarts gauge or " +
-        "graphic-text hack for a single KPI number — it needs no $bind marker and always " +
-        "renders a real number, not a one-element array. Other installed extensions may " +
-        "contribute additional block types — call list_dashboard_building_block_types " +
-        "first if you need something other than these six, or aren't sure what's " +
-        "available. Do NOT " +
-        "use 'canvas' just to place a few blocks side by side in one row — that's already " +
-        "what col_span does: give each block a col_span that divides its parent's own " +
-        "column count between them (see col_span's own description) and add them directly " +
-        "to the same parent, no wrapping canvas needed. Only reach for a nested 'canvas' " +
-        "when you actually need an independent sub-grid (e.g. a section whose own children " +
-        "should lay out on a different column count than the rest of the dashboard).",
+        "'markdown' for a text block, 'echarts' for a chart using an ECharts spec " +
+        "(requires data_binding and echarts_options), 'vega-lite' for a chart using a " +
+        "Vega-Lite spec (requires data_binding and vega_lite_spec), 'ag-grid-table' for " +
+        "a data table (requires data_binding; column_defs is optional — omit it to " +
+        "auto-derive one column per query result column), 'metric-tile' for a single " +
+        "live \"big number\" (requires data_binding resolving to one metric with no " +
+        "dimensions; label/prefix/suffix/decimals/delta are all optional), 'tabs' for a " +
+        "block that groups other blocks into switchable tabs (holds no content directly " +
+        "— add 'tab' children into it, see below). IMPORTANT: creating a 'tabs' block " +
+        "immediately auto-creates one starting tab pane of its own, labeled 'Tab 1', " +
+        "with no content — call get_dashboard_node on the new tabs id to find it before " +
+        "adding any tabs of your own, then either (a) add your first tab's own content " +
+        "directly into that existing pane (its id as parent_id) if a plain first tab " +
+        "named 'Tab 1' is acceptable, and only create new 'tab' children for the second " +
+        "tab onward, or (b) remove that pane with remove_dashboard_building_block first " +
+        "if you need a different label or ordering, then add all of your own tabs fresh. " +
+        "Do NOT simply add N new 'tab' children on top of the auto-created one — that " +
+        "leaves N+1 tabs total, with an empty extra one duplicating the label 'Tab 1'. " +
+        "'tab' for one tab inside a 'tabs' " +
+        "block (parent_id must be a 'tabs' node; requires a label; add the tab's actual " +
+        "content — a chart, text, etc. — as a separate call with this tab's id as " +
+        "parent_id, since a tab is itself a container, not content), 'collapsible' for a " +
+        "block that shows or hides a single child behind one show/hide toggle in its own " +
+        "header (holds no content directly — add exactly one child into it as a " +
+        "separate call with this block's id as parent_id; label is optional and, if " +
+        "set, is this block's own title), 'carousel' for a block that groups other " +
+        "blocks into slides navigated one at a time through a vertical strip of dots " +
+        "(holds no content directly and has no title of its own — add 'slide' children " +
+        "into it, see below), or 'slide' for one slide inside a 'carousel' block " +
+        "(parent_id must be a 'carousel' node; requires a label, used only for the " +
+        "outline/properties panel since the carousel's own dots carry no text; add the " +
+        "slide's actual content as a separate call with this slide's id as parent_id, " +
+        "since a slide is itself a container, not content). There is no " +
+        "'canvas'/grid block_type — the root is the only grid a dashboard has, it " +
+        "already exists, and nothing creates another one; to place a few blocks side by " +
+        "side in one row, give each a col_span that divides the root's own column count " +
+        "between them (see col_span's own description) and add them directly to the " +
+        "root. Prefer 'metric-tile' over an echarts gauge or graphic-text hack for a " +
+        "single KPI number — it needs no $bind marker and always renders a real number, " +
+        "not a one-element array. Other installed extensions may contribute additional " +
+        "block types — call list_dashboard_building_block_types first if you need " +
+        "something other than these eight, or aren't sure what's available (note that " +
+        "'tab' and 'slide' are themselves intentionally not listed there — they are " +
+        "private to 'tabs' and 'carousel' respectively, and only ever valid with that " +
+        "parent, unlike every other type in this list). Do NOT use 'tabs' or 'carousel' " +
+        "just to show one thing at a time by itself — reach for either when the user " +
+        "actually wants several alternative views switchable in the same spot (e.g. " +
+        "'Overview' vs. 'Detail'); reach for 'collapsible' instead when the user wants " +
+        "one thing hidden by default and revealed on demand, not switched between " +
+        "several.",
     },
     ...placementSchemaProperties,
-    ...containerSchemaProperties,
     content: {
       type: "string" as const,
       description: "Markdown content — only used when block_type is 'markdown'",
@@ -389,7 +451,7 @@ const moveBuildingBlockSchema = {
   type: "object" as const,
   properties: {
     node_id: { type: "string" as const },
-    new_parent_id: { type: "string" as const, description: "Id of the destination canvas node" },
+    new_parent_id: { type: "string" as const, description: "Id of the destination container node" },
     new_index: { type: "number" as const },
   },
   required: ["node_id", "new_parent_id", "new_index"],
@@ -400,7 +462,7 @@ const updateLayoutSchema = {
   properties: {
     node_id: { type: "string" as const },
     ...placementSchemaProperties,
-    ...containerSchemaProperties,
+    ...rootGridSchemaProperties,
   },
   required: ["node_id"],
 };
@@ -472,11 +534,13 @@ export default function useDashboardTools(): ClientTool[] {
         name: "list_dashboard_building_block_types",
         description:
           "Lists every dashboard building block type available as `block_type` for " +
-          "add_dashboard_building_block — both the built-in ones (canvas, markdown, " +
-          "echarts, ag-grid-table, metric-tile) and any installed extension's (e.g. " +
-          "vega-lite). Call this whenever the user asks for something that doesn't " +
-          "obviously map to one of the built-in types (e.g. a named component, widget, " +
-          "or feature) before assuming it doesn't exist.",
+          "add_dashboard_building_block — both the built-in ones (markdown, echarts, " +
+          "ag-grid-table, metric-tile, tabs, collapsible, carousel) and any installed " +
+          "extension's (e.g. vega-lite). The root grid itself is not in this list — it " +
+          "already exists on every dashboard and is not something you add. Call this " +
+          "whenever the user asks for something that doesn't obviously map to one of " +
+          "the built-in types (e.g. a named component, widget, or feature) before " +
+          "assuming it doesn't exist.",
         inputSchema: emptyInputSchema,
         handler: () => ({
           success: true,
@@ -486,7 +550,7 @@ export default function useDashboardTools(): ClientTool[] {
       {
         name: "get_dashboard_root",
         description:
-          "Returns the dashboard's root canvas node, including its child node ids. " +
+          "Returns the dashboard's root grid node, including its child node ids. " +
           "Use this to see the top-level layout before adding blocks.",
         inputSchema: emptyInputSchema,
         handler: () => ({ success: true, node: dashboard.getRoot() }),
@@ -495,7 +559,8 @@ export default function useDashboardTools(): ClientTool[] {
         name: "get_dashboard_node",
         description:
           "Returns a specific dashboard node by id, including its type, layout, " +
-          "props, and (for canvas nodes) children.",
+          "props, and children (for the root, or a 'tabs'/'tab'/'collapsible'/" +
+          "'carousel'/'slide' node).",
         inputSchema: nodeIdSchema,
         handler: (x: unknown) => {
           const input = x as { node_id: string };
@@ -507,12 +572,18 @@ export default function useDashboardTools(): ClientTool[] {
       {
         name: "add_dashboard_building_block",
         description:
-          "Adds a new node to the dashboard as a child of an existing canvas node. " +
-          "Returns the new node's id. Every parent is a grid (24 columns by default) — " +
-          "use col_span/row_span to size this block within it; leaving them unset makes " +
-          "the block take the whole row at a minimal height, so for anything other than " +
-          "a simple top-to-bottom stack (e.g. an executive report with multiple tiles " +
-          "per row, or charts with real height), set them explicitly. For block_type " +
+          "Adds a new node to the dashboard as a child of an existing container node " +
+          "(the root, or a 'tabs'/'tab'/'collapsible'/'carousel'/'slide' node — see " +
+          "parent_id). Returns the new node's id. The root is always a grid (24 " +
+          "columns by default) — use col_span/row_span to size this block within it; " +
+          "leaving them unset makes the block take the whole row at a minimal height, " +
+          "so for anything other than a simple top-to-bottom stack (e.g. an executive " +
+          "report with multiple tiles per row, or charts with real height), set them " +
+          "explicitly. A 'tabs', 'tab', 'collapsible', 'carousel', or 'slide' parent " +
+          "has no grid, so col_span/col/row are ignored for a block added into one — " +
+          "but row_span is NOT ignored there: leave it unset so the block fills the " +
+          "container's available height (see row_span's own description for why " +
+          "setting it there is almost always a mistake). For block_type " +
           "'echarts', 'vega-lite', 'ag-grid-table', or 'metric-tile', the data_binding is " +
           "validated by actually running the query before the block is created — if it " +
           "fails (e.g. an unknown column/metric name), no node is created and the error " +
@@ -545,6 +616,14 @@ export default function useDashboardTools(): ClientTool[] {
           let props: Record<string, unknown> | undefined;
           if (input.block_type === "markdown") {
             props = { content: input.content ?? "" };
+          } else if (input.block_type === "tab" || input.block_type === "slide") {
+            if (!input.label) {
+              return {
+                success: false,
+                message: `block_type '${input.block_type}' requires a label`,
+              };
+            }
+            props = { label: input.label };
           } else if (
             input.block_type === "echarts" ||
             input.block_type === "vega-lite" ||
@@ -623,7 +702,8 @@ export default function useDashboardTools(): ClientTool[] {
       {
         name: "remove_dashboard_building_block",
         description:
-          "Removes a node (and, if it's a canvas, its entire subtree) from the dashboard.",
+          "Removes a node (and, if it holds children — a 'tabs', 'tab', 'collapsible', " +
+          "'carousel', or 'slide' node — its entire subtree) from the dashboard.",
         inputSchema: nodeIdSchema,
         handler: (x: unknown) => {
           const input = x as { node_id: string };
@@ -644,7 +724,7 @@ export default function useDashboardTools(): ClientTool[] {
       },
       {
         name: "move_dashboard_building_block",
-        description: "Moves an existing node to a new canvas parent at a given index.",
+        description: "Moves an existing node to a new container parent at a given index.",
         inputSchema: moveBuildingBlockSchema,
         handler: (x: unknown) => {
           const input = x as { node_id: string; new_parent_id: string; new_index: number };
@@ -660,9 +740,9 @@ export default function useDashboardTools(): ClientTool[] {
         name: "update_dashboard_layout",
         description:
           "Updates layout properties of an existing node — either how it's placed " +
-          "within its parent's grid (col_span/row_span/col/row) or, if it's a " +
-          "canvas, its own grid config for its children (columns/gap/row_unit). Omit " +
-          "fields you don't want to change.",
+          "within the root's grid (col_span/row_span/col/row) or, if node_id is the " +
+          "root itself, the root's own grid config for its children " +
+          "(columns/gap/row_unit). Omit fields you don't want to change.",
         inputSchema: updateLayoutSchema,
         handler: (x: unknown) => {
           const input = x as {

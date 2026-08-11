@@ -39,13 +39,15 @@ function singleMetric(columnName: string, aggregate: string, label: string) {
 
 /**
  * Replaces the dashboard's current top-level content with a fixed
- * 11-block executive-report-style layout — title, a 4-tile KPI row (real
- * `metric-tile` blocks, not the markdown-with-bold-text stand-in this used
- * before that block type existed), three `echarts` chart rows, a commentary
- * block, and an `ag-grid-table` detail table — all bound to the
- * `cleaned_sales_data` example dataset, so the canvas/drag/resize behavior
- * can be exercised against realistic content without a chat/AI round trip
- * each time.
+ * 11-block executive-report-style layout — a markdown title block (just the
+ * heading, nothing else — `blockLabel` names a markdown block by its
+ * registration rather than echoing its content, so this no longer prints
+ * the same words twice), a 4-tile KPI row (real `metric-tile` blocks, not
+ * the markdown-with-bold-text stand-in this used before that block type
+ * existed), three `echarts` chart rows, a commentary block, and an
+ * `ag-grid-table` detail table — all bound to the `cleaned_sales_data`
+ * example dataset, so the canvas/drag/resize behavior can be exercised
+ * against realistic content without a chat/AI round trip each time.
  */
 export function buildDefaultDashboardReport(): void {
   const root = dashboard.getRoot();
@@ -54,7 +56,7 @@ export function buildDefaultDashboardReport(): void {
   dashboard.addBuildingBlock(root.id, 0, {
     type: "markdown",
     layout: { colSpan: 24, rowSpan: 3 },
-    props: { content: "# Acme Corp — Q3 Executive Report\nGenerated November 2025" },
+    props: { content: "# Acme Corp — Q3 Executive Report" },
   });
   dashboard.addBuildingBlock(root.id, 1, {
     type: "metric-tile",
