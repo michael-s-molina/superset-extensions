@@ -65,6 +65,156 @@ function ThinkingIndicator() {
   );
 }
 
+// One tool call made during a turn, and how it went. `origin` distinguishes a
+// server (MCP) tool the model ran on the backend from a client tool this browser
+// dispatched. `args`/`result` are the raw payloads sent to and returned from the
+// tool, kept so the trace can show exactly what was exchanged (for debugging).
+interface ToolStep {
+  id: string;
+  name: string;
+  status: "running" | "success" | "error";
+  origin: "server" | "client";
+  message?: string;
+  args?: unknown;
+  result?: unknown;
+}
+
+const STEP_ICON: Record<ToolStep["status"], string> = {
+  running: "⏳",
+  success: "✅",
+  error: "⚠️",
+};
+
+const stepPreStyle: React.CSSProperties = {
+  margin: "2px 0 0",
+  padding: "6px 8px",
+  fontSize: 11,
+  fontFamily: "monospace",
+  whiteSpace: "pre-wrap",
+  wordBreak: "break-word",
+  maxHeight: 220,
+  overflow: "auto",
+  background: "rgba(0, 0, 0, 0.05)",
+  borderRadius: 4,
+};
+
+function formatPayload(value: unknown): string {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+// A small pill marking where a tool ran: "server" (backend MCP tool, e.g. schema
+// discovery) vs "browser" (a client tool acting on this tab's canvas).
+function OriginTag({ origin }: { origin: ToolStep["origin"] }) {
+  const isServer = origin === "server";
+  return (
+    <span
+      style={{
+        fontSize: 10,
+        textTransform: "uppercase",
+        letterSpacing: 0.4,
+        padding: "0 4px",
+        marginRight: 4,
+        borderRadius: 3,
+        border: "1px solid",
+        borderColor: isServer ? "#722ed1" : "#1677ff",
+        color: isServer ? "#722ed1" : "#1677ff",
+      }}
+    >
+      {isServer ? "server" : "browser"}
+    </span>
+  );
+}
+
+// The head of a step row: status icon, origin pill, tool name, and any message.
+function StepHead({ step }: { step: ToolStep }) {
+  return (
+    <>
+      <span>{STEP_ICON[step.status]}</span> <OriginTag origin={step.origin} />
+      <code>{step.name}</code>
+      {step.message ? (
+        <span style={{ opacity: 0.7 }}> — {step.message}</span>
+      ) : null}
+    </>
+  );
+}
+
+// A collapsible trace of the tool calls made during a turn, so the user can see
+// what the assistant is doing — both the backend MCP tools it ran (schema
+// discovery, data queries) and the client tools it dispatched to the canvas —
+// rather than only the final reply. Collapsed by default; the summary shows the
+// count and, while in progress, a spinner. Each call is itself expandable to
+// reveal the exact arguments sent and the result received.
+function ToolSteps({ steps }: { steps: ToolStep[] }) {
+  if (steps.length === 0) return null;
+  const running = steps.some((s) => s.status === "running");
+  const errors = steps.filter((s) => s.status === "error").length;
+  const summary =
+    `${steps.length} tool call${steps.length === 1 ? "" : "s"}` +
+    (running ? "…" : errors ? ` · ${errors} error${errors === 1 ? "" : "s"}` : "");
+  return (
+    <details style={{ fontSize: 12, opacity: 0.9 }}>
+      <summary style={{ cursor: "pointer", userSelect: "none" }}>
+        {running ? <LoadingOutlined spin /> : "🔧"} {summary}
+      </summary>
+      <ul style={{ margin: "6px 0 0", paddingLeft: 18, listStyle: "none" }}>
+        {steps.map((s) => {
+          const hasDetail = s.args !== undefined || s.result !== undefined;
+          return (
+            <li key={s.id} style={{ margin: "2px 0" }}>
+              {hasDetail ? (
+                <details>
+                  <summary style={{ cursor: "pointer", userSelect: "none" }}>
+                    <StepHead step={s} />
+                  </summary>
+                  {s.args !== undefined ? (
+                    <div style={{ marginTop: 4 }}>
+                      <div style={{ opacity: 0.6 }}>Sent</div>
+                      <pre style={stepPreStyle}>{formatPayload(s.args)}</pre>
+                    </div>
+                  ) : null}
+                  {s.result !== undefined ? (
+                    <div style={{ marginTop: 4 }}>
+                      <div style={{ opacity: 0.6 }}>Received</div>
+                      <pre style={stepPreStyle}>{formatPayload(s.result)}</pre>
+                    </div>
+                  ) : null}
+                </details>
+              ) : (
+                <StepHead step={s} />
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </details>
+  );
+}
+
+// The full assistant turn: its tool-call trace (updating live), the thinking
+// indicator while still working, and the final markdown reply once it arrives.
+function TurnView({
+  steps,
+  text,
+  loading,
+}: {
+  steps: ToolStep[];
+  text: string;
+  loading: boolean;
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <ToolSteps steps={steps} />
+      {text ? renderMarkdown(text) : null}
+      {loading ? <ThinkingIndicator /> : null}
+    </div>
+  );
+}
+
 // Depend on nothing per-render (no theme, no props, no state) — hoisted so
 // Bubble.List/Sender see a stable reference across re-renders instead of a
 // fresh object every keystroke. Bubble.List in particular re-processes its
@@ -89,14 +239,25 @@ interface ToolSpec {
   input_schema: Record<string, unknown>;
 }
 
+// A server (MCP) tool the model ran on the backend during a leg, mirrored from
+// the backend Turn so the frontend can show it in the trace.
+interface ServerCall {
+  id: string;
+  name: string;
+  arguments?: Record<string, unknown>;
+  result?: unknown;
+  is_error?: boolean;
+}
+
 // Discriminated union mirroring the backend's Turn dataclasses.
 type Turn =
-  | { type: "final"; content: string }
+  | { type: "final"; content: string; server_calls?: ServerCall[] }
   | {
       type: "client_action";
       state: unknown;
       resolved_results: unknown[];
       calls: { id: string; name: string; arguments: Record<string, unknown> }[];
+      server_calls?: ServerCall[];
     };
 
 // A send()/resume() round trip that returns a non-final turn without making
@@ -138,27 +299,85 @@ async function postJson(path: string, body: unknown, signal: AbortSignal): Promi
   return data.result as Turn;
 }
 
+// Assistant bubbles carry their tool-call trace and the final text alongside
+// the rendered `content` node, so the trace survives re-renders and the text
+// can be serialized back into history (whose entries must be plain strings).
+type ChatMessage = BubbleDataType & { steps?: ToolStep[]; text?: string };
+
 async function runChatTurn(
   history: ChatTurn[],
   clientTools: ClientTool[],
   toolSpecs: ToolSpec[],
   signal: AbortSignal,
+  onStep: (step: ToolStep) => void,
 ): Promise<string> {
   const toolsByName = new Map(clientTools.map((tool) => [tool.name, tool]));
+
+  // Server (MCP) tools the model ran on the backend arrive already-completed on
+  // each returned Turn; surface them in the trace, tagged as server-origin, in
+  // the order they ran (before that leg's client calls).
+  const emitServerCalls = (t: Turn) =>
+    (t.server_calls ?? []).forEach((call) => {
+      // The MCP gateway exposes a generic `call_tool` dispatcher whose real tool
+      // name and arguments are nested in its input ({name, arguments}); unwrap
+      // it so the trace shows the actual tool (e.g. get_widget_control_schema)
+      // rather than the uninformative dispatcher name.
+      const args = call.arguments;
+      const dispatched =
+        call.name === "call_tool" &&
+        typeof args === "object" &&
+        args !== null &&
+        typeof (args as { name?: unknown }).name === "string";
+      const inner = dispatched
+        ? (args as { name: string; arguments?: unknown })
+        : null;
+      onStep({
+        id: call.id,
+        name: inner ? inner.name : call.name,
+        status: call.is_error ? "error" : "success",
+        origin: "server",
+        args: inner ? inner.arguments : call.arguments,
+        result: call.result,
+      });
+    });
 
   let turn = await postJson(
     "/extensions/michael-s-molina/chat/send",
     { history, client_tools: toolSpecs },
     signal,
   );
+  emitServerCalls(turn);
 
   for (let i = 0; i < MAX_TURN_ROUND_TRIPS && turn.type === "client_action"; i += 1) {
+    // Surface each call as "running" before dispatching, then resolve its
+    // status from the tool result — so the trace updates live in the bubble.
+    turn.calls.forEach((call) =>
+      onStep({
+        id: call.id,
+        name: call.name,
+        status: "running",
+        origin: "client",
+        args: call.arguments,
+      }),
+    );
+
     const results = await Promise.all(
       turn.calls.map(async (call) => {
         const tool = toolsByName.get(call.name);
         const result = tool
           ? await tool.handler(call.arguments)
           : { success: false, message: `Unknown client tool "${call.name}"` };
+        const record = (result ?? {}) as { success?: boolean; message?: string };
+        onStep({
+          id: call.id,
+          name: call.name,
+          // Client tools return {success:false} on failure; anything else is a success.
+          status: record.success === false ? "error" : "success",
+          origin: "client",
+          message: typeof record.message === "string" ? record.message : undefined,
+          args: call.arguments,
+          result,
+        });
         return {
           type: "tool_result",
           tool_use_id: call.id,
@@ -172,6 +391,7 @@ async function runChatTurn(
       { state: turn.state, resolved_results: turn.resolved_results, results, client_tools: toolSpecs },
       signal,
     );
+    emitServerCalls(turn);
   }
 
   if (turn.type === "client_action") {
@@ -183,7 +403,7 @@ async function runChatTurn(
 
 export default function ChatPanel() {
   const t = useTheme();
-  const [messages, setMessages] = useState<BubbleDataType[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [value, setValue] = useState("");
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<chat.DisplayMode>(chat.getDisplayMode());
@@ -299,7 +519,13 @@ export default function ChatPanel() {
       assistant: {
         placement: "start",
         styles: { content: { backgroundColor: t.colorFillSecondary, color: t.colorText } },
-        messageRender: renderMarkdown,
+        // Assistant content is a TurnView React node (trace + reply); pass it
+        // through untouched, and only markdown-render the plain-string case
+        // (e.g. the "copy dashboard config" helper output).
+        messageRender: (content: unknown) =>
+          React.isValidElement(content)
+            ? (content as React.ReactNode)
+            : renderMarkdown(content),
       },
     }),
     [t],
@@ -311,20 +537,27 @@ export default function ChatPanel() {
     historyIndexRef.current = null;
 
     const history: ChatTurn[] = [
-      ...messages.map((m) => ({ role: String(m.role), content: String(m.content ?? "") })),
+      ...messages.map((m) => ({
+        role: String(m.role),
+        // Assistant bubbles hold a React node in `content`; their serializable
+        // text lives in `text`. User bubbles hold a plain string.
+        content:
+          typeof m.content === "string" ? m.content : String(m.text ?? ""),
+      })),
       { role: "user", content: text },
     ];
 
-    const thinkingKey = nextKey++;
+    const userKey = nextKey++;
+    const turnKey = nextKey++;
     setMessages((prev) => [
       ...prev,
-      { key: nextKey++, role: "user", content: text },
+      { key: userKey, role: "user", content: text },
       {
-        key: thinkingKey,
+        key: turnKey,
         role: "assistant",
-        content: "",
-        loading: true,
-        loadingRender: () => <ThinkingIndicator />,
+        steps: [],
+        text: "",
+        content: <TurnView steps={[]} text="" loading />,
       },
     ]);
     setValue("");
@@ -333,16 +566,50 @@ export default function ChatPanel() {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
+    // Merge a tool-step update into the in-flight assistant bubble and rebuild
+    // its TurnView so the trace reflects it live.
+    const applyStep = (step: ToolStep) => {
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.key !== turnKey) return m;
+          const prevSteps = m.steps ?? [];
+          const steps = prevSteps.some((s) => s.id === step.id)
+            ? prevSteps.map((s) => (s.id === step.id ? step : s))
+            : [...prevSteps, step];
+          return {
+            ...m,
+            steps,
+            content: <TurnView steps={steps} text={m.text ?? ""} loading />,
+          };
+        }),
+      );
+    };
+
+    const finish = (finalText: string) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.key === turnKey
+            ? {
+                ...m,
+                text: finalText,
+                content: (
+                  <TurnView steps={m.steps ?? []} text={finalText} loading={false} />
+                ),
+              }
+            : m,
+        ),
+      );
+    };
+
     try {
       const content = await runChatTurn(
         history,
         dashboardTools,
         dashboardToolSpecs,
         controller.signal,
+        applyStep,
       );
-      setMessages((prev) =>
-        prev.map((m) => (m.key === thinkingKey ? { ...m, content, loading: false } : m)),
-      );
+      finish(content);
     } catch (e) {
       // A user-initiated cancel rejects the in-flight fetch with this same
       // shape (DOMException named "AbortError") — show it as a deliberate
@@ -353,13 +620,7 @@ export default function ChatPanel() {
         : e instanceof Error
           ? e.message
           : "An unexpected error occurred.";
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.key === thinkingKey
-            ? { ...m, content: wasCancelled ? message : `⚠️ ${message}`, loading: false }
-            : m,
-        ),
-      );
+      finish(wasCancelled ? message : `⚠️ ${message}`);
     } finally {
       abortControllerRef.current = null;
       setLoading(false);

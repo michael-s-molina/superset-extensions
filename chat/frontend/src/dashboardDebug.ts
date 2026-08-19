@@ -26,7 +26,7 @@ function serializeNode(id: string): SerializedNode | null {
 /**
  * Serializes the entire dashboard node tree, starting from the root, as
  * pretty-printed JSON — for pasting into a bug report when the AI or a
- * manual drag/resize produces something wrong (overlapping blocks, a
+ * manual drag/resize produces something wrong (overlapping widgets, a
  * container dragging along with its children, etc.), since the tree
  * itself isn't visible anywhere in the UI otherwise.
  */

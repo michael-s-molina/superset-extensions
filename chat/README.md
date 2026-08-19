@@ -52,7 +52,8 @@ paused on a client-side tool call:
 
 ```python
 from michael_s_molina.chat.providers.base import (
-    FinalAnswer, LLMProvider, Message, ServerToolCaller, ToolSpec, Turn,
+    ClientActionRequired, FinalAnswer, LLMProvider, Message, ServerToolCaller,
+    ToolSpec, Turn,
 )
 
 class MyProvider:  # implements LLMProvider structurally - no base class required
@@ -71,6 +72,17 @@ class MyProvider:  # implements LLMProvider structurally - no base class require
                server_tool_names, call_server_tool) -> Turn:
         ...
 ```
+
+Both `FinalAnswer` and `ClientActionRequired` accept an optional
+`server_calls` list - a **display-only** trace of the server (MCP) tools your
+loop ran during that leg, so the chat UI can show them (tagged as server-origin)
+alongside the client tools the browser dispatched. Populate it if you want that
+visibility; each entry is
+`{"id", "name", "arguments", "result", "is_error"}`. It defaults to empty, so a
+provider that ignores it still works - it just won't surface backend tool calls
+in the trace. This is distinct from `ClientActionRequired.resolved_results`,
+which carries the raw tool-result blocks needed to stitch the conversation back
+together and is **not** for display.
 
 **2. Register it from your own extension's backend entrypoint** - this
 runs automatically when Superset starts, before `chat` ever looks up a

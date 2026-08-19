@@ -1,7 +1,8 @@
 import { useMemo } from "react";
-import { dashboard, views } from "@apache-superset/core";
+import { dashboard } from "@apache-superset/core";
+import type { dashboard as dashboardApi } from "@apache-superset/core";
 
-const BUILDING_BLOCKS_LOCATION = "dashboard.buildingBlocks";
+type DataBindingSpec = dashboardApi.DataBindingSpec;
 
 export interface ClientTool {
   name: string;
@@ -15,68 +16,55 @@ export interface ClientTool {
 
 const emptyInputSchema = { type: "object" as const, properties: {} };
 
-// Shared placement fields — how a block sits within its *parent's* grid.
-// There is exactly one grid in a dashboard: the root's. col_span/col/row are
-// only meaningful when the parent IS the root — a 'tabs', 'tab',
-// 'collapsible', 'carousel', or 'slide' parent has no grid of its own (its
-// children stack and flow, not positioned), so those three are simply
-// ignored when adding into one — don't bother setting them in that case.
-// col_span defaults to the root's full column count when omitted, so leaving
-// it unset always renders something reasonable — set it explicitly only for
-// a multi-column layout (e.g. an executive report's side-by-side KPI tiles).
+// Shared placement fields — how a widget sits within its *parent's* grid.
+// This is the dashboard tree's fixed grammar (not per-widget-type content),
+// so it stays inline here rather than coming from a widget's own schema.
+// col_span/row_span default to the parent's full column count / 1 row when
+// omitted, so leaving them unset always renders something, but that default is
+// a full-width, single-row-tall widget — set them explicitly for anything that
+// needs real height or a multi-column layout (e.g. side-by-side KPI tiles).
 //
-// row_span is NOT like the other three: it is never ignored. On the root
-// it's a row-track count (defaulting to 1, a single row unit — visually very
-// short) — but a flow parent ('tabs'/'tab'/'collapsible'/'carousel'/'slide')
-// reads the exact same field as a literal pixel height instead, and when
-// it's left unset there, the child flexes to fill whatever room the
-// container actually has. Passing a small root-tuned number like 10-14 into
-// a flow parent renders a 10-14 *pixel* tall sliver, not a comfortably sized
-// block — the single most common way a block placed inside a tab/collapsible/
-// carousel ends up looking broken. Leave row_span unset entirely for a block
-// whose parent is a 'tabs', 'tab', 'collapsible', 'carousel', or 'slide'.
+// A 'tabs', 'tab', 'collapsible', 'carousel', or 'slide' parent has no grid of
+// its own (its children stack and flow, not positioned) — col_span/col/row are
+// simply ignored when adding into one. row_span is the exception: it's never
+// ignored — that same parent reads it as a literal pixel height instead of a
+// row-track count, and when left unset there, the child flexes to fill
+// whatever room the container has. Leave row_span unset entirely for a widget
+// whose parent is one of those five.
 const placementSchemaProperties = {
   col_span: {
     type: "number" as const,
     description:
-      "How many of the root's columns this block spans (the root defaults to 24 " +
-      "columns). Defaults to the full column count if omitted, meaning this block " +
-      "takes the whole row by itself. To place several blocks side by side in one " +
-      "row, give each a col_span that divides the column count between them (e.g. " +
-      "three tiles at col_span 8 each fill a 24-column row). Ignored if the parent " +
-      "is a 'tabs', 'tab', 'collapsible', 'carousel', or 'slide' block — those have " +
-      "no grid to span.",
+      "How many of the parent canvas's columns this widget spans (parent canvases " +
+      "default to 24 columns). Defaults to the parent's full column count if " +
+      "omitted, meaning this widget takes the whole row by itself. To place several " +
+      "widgets side by side in one row, give each a col_span that divides the " +
+      "parent's column count between them (e.g. three tiles at col_span 8 each " +
+      "fill a 24-column row). Ignored if the parent is a 'tabs', 'tab', " +
+      "'collapsible', 'carousel', or 'slide' widget — those have no grid to span.",
   },
   row_span: {
     type: "number" as const,
     description:
-      "How many row tracks this block spans, but ONLY when the parent is the root " +
-      "grid. Defaults to 1 row track if omitted there, which is visually very short " +
-      "— set this explicitly for a root-level block that needs real height: roughly " +
-      "10-14 for a normal chart, more for a large hero chart or a tall markdown " +
-      "block. If the parent is instead a 'tabs', 'tab', 'collapsible', 'carousel', " +
-      "or 'slide' block, DO NOT set row_span at all: that parent has no grid, so it " +
-      "reads this same field as a literal pixel height rather than a row count, and " +
-      "a root-tuned number like 10-14 would render as a 10-14 pixel sliver. Leaving " +
-      "row_span unset there makes the block flex to fill the container's own " +
-      "available height instead — almost always what you want.",
+      "How many row tracks this widget spans. Defaults to 1 if omitted, which is a " +
+      "single row unit — visually very short. Set this explicitly for any widget " +
+      "that needs real height: roughly 10-14 for a normal chart, more for a large " +
+      "hero chart or a tall text/content widget. EXCEPTION: if the parent is a " +
+      "'tabs', 'tab', 'collapsible', 'carousel', or 'slide' widget, DO NOT set " +
+      "row_span at all — that parent has no grid, so it reads this same field as a " +
+      "literal pixel height rather than a row count, and a grid-tuned number like " +
+      "10-14 would render as a 10-14 pixel sliver. Leaving row_span unset there " +
+      "makes the widget flex to fill the container's own available height instead " +
+      "— almost always what you want.",
   },
   col: {
     type: "number" as const,
     description:
       "Explicit 1-based starting column. Omit this (and row) for ordinary " +
-      "sequential layout — the grid auto-places the block in the next available " +
-      "cell based on col_span. Only set col/row for precise placement (e.g. a " +
-      "hero tile spanning multiple rows beside smaller ones). If this collides " +
-      "with an existing sibling that also has an explicit col/row, the host " +
-      "automatically pushes whichever of the two comes later among the parent's " +
-      "children straight down until it no longer overlaps — that's normally " +
-      "whichever you added most recently, UNLESS you passed add_dashboard_building_block " +
-      "an index placing it earlier than the existing sibling, in which case the " +
-      "EXISTING one is what gets pushed. Either way, blocks never end up stuck " +
-      "rendering on top of each other. Ignored if the parent is a 'tabs', 'tab', " +
-      "'collapsible', 'carousel', or 'slide' block — those have no grid to place " +
-      "into.",
+      "sequential layout — the grid auto-places the widget in the next available " +
+      "cell based on col_span. Only set col/row for precise placement. Ignored if " +
+      "the parent is a 'tabs', 'tab', 'collapsible', 'carousel', or 'slide' widget " +
+      "— those have no grid to place into.",
   },
   row: {
     type: "number" as const,
@@ -84,385 +72,161 @@ const placementSchemaProperties = {
   },
 };
 
-// The root's own grid config. There is exactly one grid in a dashboard — the
-// root's — so these are never passed to add_dashboard_building_block (there
-// is nothing left to create one of); they're only ever read/updated on the
-// root itself, via update_dashboard_layout with the root's own node id.
-const rootGridSchemaProperties = {
+// Container grid config — only meaningful when widget_type is 'canvas', since
+// only a canvas holds children of its own to lay out. 'tabs', 'tab',
+// 'collapsible', 'carousel', and 'slide' are flow containers with no grid of
+// their own, so none of these apply to them either.
+const containerSchemaProperties = {
   columns: {
     type: "number" as const,
     description:
-      "Number of equal columns the root divides itself into for its own " +
-      "children. Defaults to 24.",
+      "Number of equal columns this canvas divides itself into for its own " +
+      "children. Only used when widget_type is 'canvas'. Defaults to 24.",
   },
   gap: {
     type: "number" as const,
-    description: "Gap between the root's children, in pixels.",
+    description: "Gap between this canvas's children, in pixels. Only used when widget_type is 'canvas'.",
   },
   row_unit: {
     type: "number" as const,
     description:
-      "Pixel height of one row track for the root's own children. Rows are " +
-      "created on demand, never predivided from a fixed total, so this only sets " +
-      "how tall each one is.",
+      "Pixel height of one row track for this canvas's own children. Only used " +
+      "when widget_type is 'canvas'. Leave unset unless you need a different row " +
+      "height than the parent's.",
   },
 };
 
 const nodeIdSchema = {
   type: "object" as const,
   properties: {
-    node_id: { type: "string" as const, description: "The id of the dashboard node" },
+    node_id: { type: "string" as const, description: "The id of the widget (dashboard node)" },
   },
   required: ["node_id"],
 };
 
-// Required when block_type is 'echarts'. Deliberately generic (no
-// viz_type) — it always hits the same query path Superset falls back to
-// when a form_data's viz_type has no registered chart plugin, so it works
-// for any chart shape without per-chart-type integration work.
-const adhocMetricSchema = {
+// Generic content payload. A widget's content is an instance of that widget
+// type's OWN published JSON Schema — discovered from the backend, not
+// hard-coded here (that schema is the single source of truth, per the Widget
+// Framework). The model is told to fetch it before filling this in; we
+// deliberately do NOT enumerate per-widget-type shapes here, so the model has
+// to use progressive disclosure rather than guessing from a crib sheet.
+const propsSchema = {
   type: "object" as const,
+  additionalProperties: true,
   description:
-    "An ad hoc aggregate over a column — use this for anything like 'total X' or " +
-    "'average Y' rather than guessing at a saved metric name.",
-  properties: {
-    expressionType: { type: "string" as const, enum: ["SIMPLE"] },
-    column: {
-      type: "object" as const,
-      properties: {
-        column_name: { type: "string" as const, description: "The column to aggregate" },
-      },
-      required: ["column_name"],
-    },
-    aggregate: {
-      type: "string" as const,
-      enum: ["SUM", "AVG", "COUNT", "COUNT_DISTINCT", "MIN", "MAX"],
-    },
-    label: { type: "string" as const, description: "Optional display label, e.g. 'Total Sales'" },
-  },
-  required: ["expressionType", "column", "aggregate"],
+    "The widget's content: an object matching the widget type's published control " +
+    "schema. Discover the fields before filling this in — call " +
+    "get_widget_control_schema(widget_type) for the required (minimum-viable) shape, " +
+    "then call it again with `paths` (each an x-path from an x-collapsed marker) to " +
+    "expand branches you need; you can expand several at once. Only expand/set the " +
+    "branches the user's request actually needs — the required shape alone is enough " +
+    "to create a valid widget, so leave optional branches collapsed and unset unless " +
+    "the request calls for them. A marker flagged x-dynamic changes with the query " +
+    "(re-fetch it after changing the query); one without is static. Read field names " +
+    "and nesting from the schema rather than assuming them. If props includes a " +
+    "`dataBinding`, it is validated by running the query before the widget is " +
+    "created/updated. Do NOT put layout/placement here — col_span/row_span/col/row " +
+    "(and columns/gap/row_unit for a canvas) are separate parameters.",
 };
 
-const dataBindingSchema = {
-  type: "object" as const,
-  description:
-    "What data to query for an 'echarts', 'vega-lite', 'ag-grid-table', or " +
-    "'metric-tile' block.",
-  properties: {
-    dataset_id: { type: "number" as const, description: "Id of the dataset to query" },
-    metrics: {
-      type: "array" as const,
-      items: { oneOf: [{ type: "string" as const }, adhocMetricSchema] },
-      description:
-        "Each entry is EITHER a string naming an EXISTING saved metric on the dataset " +
-        "(only use this if you already know that exact metric exists — e.g. from a " +
-        "prior get_dashboard_node/list-metrics lookup), OR an ad hoc aggregate object " +
-        "(see the nested schema). For a request like 'total sales' or 'average price', " +
-        "use the ad hoc object form. Do NOT pass a raw SQL-like string such as " +
-        "'SUM(sales)' — Superset interprets any plain string here as a saved-metric " +
-        "NAME lookup, not an expression to compute, and it will fail with " +
-        "\"Metric 'SUM(sales)' does not exist\".",
-    },
-    dimensions: {
-      type: "array" as const,
-      items: { type: "string" as const },
-      description: "Column names to group by",
-    },
-    row_limit: { type: "number" as const },
-  },
-  required: ["dataset_id", "metrics"],
-};
-
-// Required when block_type is 'echarts'. A near-raw ECharts `option` — see
-// https://echarts.apache.org/en/option.html. Anywhere a literal value would
-// normally go, a {"$bind": {...}} marker can be used instead to splice in
-// queried data or a theme token:
-//   {"$bind": {"source": "metric", "alias": "<metric name>"}}      -> one array of that column's values, one entry per row
-//   {"$bind": {"source": "dimension", "alias": "<column name>"}}   -> same, for a groupby column
-//   {"$bind": {"source": "metric", "alias": "<metric name>", "single": true}}
-//                                                                    -> just that one value, unwrapped — for a single-aggregate
-//                                                                       query (no dimensions), use this wherever the field wants a
-//                                                                       plain number/string, not a one-element array (e.g. a gauge's
-//                                                                       series[].data[].value, or a graphic[].style.text label)
-//   {"$bind": {"source": "records", "fields": {"name": "<col>", "value": "<col>"}}}
-//                                                                    -> one array of {name, value, ...} objects, one per row —
-//                                                                       use this for pie's series[].data, which needs {name,value} pairs,
-//                                                                       not two parallel arrays
-//   {"$bind": {"source": "theme", "token": "<theme token>"}}       -> a single Superset theme value (e.g. a color)
-const echartsOptionsSchema = {
-  type: "object" as const,
-  description:
-    "A near-raw ECharts `option` object " +
-    "(https://echarts.apache.org/en/option.html) — author it the same way you would " +
-    "for any ECharts chart (series, xAxis, yAxis, tooltip, legend, color, etc.). " +
-    'Anywhere a literal value would normally go, use {"$bind": {"source": "metric", ' +
-    '"alias": "<metric name>"}} or {"$bind": {"source": "dimension", "alias": ' +
-    '"<column name>"}} to splice in the queried data (resolved as one array of that ' +
-    "column's values, one per row — even when the query has only one row, e.g. a " +
-    'single-aggregate "big number"/gauge query with no dimensions). Add `"single": ' +
-    'true` inside the $bind object — e.g. {"$bind": {"source": "metric", "alias": ' +
-    '"<metric name>", "single": true}} — to get that one row\'s value unwrapped ' +
-    "instead of a one-element array, for any field that wants a plain number/string " +
-    "rather than an array: a gauge's series[].data[].value, a graphic[].style.text " +
-    "label, a formatter argument, etc. For chart types needing {name, value} pairs " +
-    'per data point (e.g. pie\'s series[].data), use {"$bind": {"source": "records", ' +
-    '"fields": {"name": "<column>", "value": "<column>"}}} instead — this zips ' +
-    'multiple columns into one array of objects, one per row. Use {"$bind": ' +
-    '{"source": "theme", "token": "<theme token>"}} for a Superset theme color/token. ' +
-    'The "$bind" wrapper is required in every case — {"source": ..., ...} on its own, ' +
-    "without the wrapper, is not recognized and silently passes through as a literal " +
-    "object instead of the value it names. This option is JSON — it can never contain " +
-    "a JavaScript function, so never set a field ECharts documents as accepting " +
-    '*only* a function, most commonly tooltip.valueFormatter (use tooltip.formatter ' +
-    'instead — a plain string template like "{b}: ${c}" — which does the same job ' +
-    "and IS supported as a string) or series[].labelLayout. Fields that accept EITHER " +
-    "a function OR a string template — axisLabel.formatter, series[].label.formatter, " +
-    "tooltip.formatter itself — are fine to use with a string.",
-};
-
-// Required when block_type is 'vega-lite'. A near-raw Vega-Lite spec — see
-// https://vega.github.io/vega-lite/docs/spec.html. Unlike echarts_options,
-// this needs no $bind markers: Vega-Lite's own `encoding` channels already
-// reference column names against a single flat data table, and the queried
-// rows are spliced in as `data.values` automatically before rendering — just
-// reference the same column names used in data_binding's metrics/dimensions.
-const vegaLiteSpecSchema = {
-  type: "object" as const,
-  description:
-    "A near-raw Vega-Lite spec (https://vega.github.io/vega-lite/docs/spec.html) — " +
-    "author `mark` and `encoding` the same way you would for any Vega-Lite chart, " +
-    "referencing column names directly (e.g. " +
-    '{"encoding": {"x": {"field": "order_date", "type": "temporal"}, "y": {"field": ' +
-    '"revenue", "type": "quantitative"}}}). Do NOT set `data` — the queried rows are ' +
-    "spliced in automatically as `data.values` right before rendering, so this spec " +
-    "should only describe `mark`/`encoding`/`transform`/etc. Column names in `encoding` " +
-    "must match data_binding's own metrics/dimensions (or their aliases).",
-};
-
-// Optional when block_type is 'ag-grid-table'. Omit entirely for the common
-// case — columns are derived automatically, one per query result column, in
-// the same order, using the column name as both field and header. Only pass
-// this to customize headers, widths, or per-column sorting/filtering.
-const columnDefsSchema = {
-  type: "array" as const,
-  description:
-    "AG Grid column definitions. Omit this entirely to auto-derive one column per " +
-    "query result column (field and header both set to the column name). Only pass " +
-    "this to customize headers, widths, or per-column sort/filter behavior — each " +
-    "entry's \"field\" must match a metric's label or a dimension's column name from " +
-    "data_binding, exactly as it appears in the query result.",
-  items: {
-    type: "object" as const,
-    properties: {
-      field: {
-        type: "string" as const,
-        description: "Must match a metric label or dimension column name from data_binding",
-      },
-      headerName: {
-        type: "string" as const,
-        description: "Display header text. Defaults to field if omitted.",
-      },
-      width: { type: "number" as const, description: "Column width in pixels" },
-      sortable: { type: "boolean" as const },
-      filter: { type: "boolean" as const },
-    },
-    required: ["field"],
-  },
-};
-
-// Only meaningful when block_type is 'metric-tile' ("big number"). Unlike
-// echarts/vega-lite/ag-grid-table, there's no single "spec" object here —
-// just a handful of flat display fields alongside data_binding, which
-// should resolve to exactly one metric with no dimensions (a tile shows
-// one number; the *first* result row is used regardless).
-const metricTileSchemaProperties = {
-  label: {
-    type: "string" as const,
-    description:
-      "For block_type 'metric-tile': text shown below the number, e.g. 'Revenue'. " +
-      "Defaults to the metric's own label/name from data_binding if omitted. " +
-      "For block_type 'tab' or 'slide': the pane's own title, e.g. 'Overview' — " +
-      "REQUIRED in both cases, since neither has data to name itself from. For " +
-      "'slide', this is used for the outline/properties panel only — the carousel's " +
-      "own on-canvas navigation is a plain row of dots with no visible labels. For " +
-      "'collapsible', an optional title shown in its header; leave unset for no title " +
-      "there at all.",
-  },
-  prefix: {
-    type: "string" as const,
-    description:
-      "Text shown immediately before the number, e.g. '$'. Only used when block_type " +
-      "is 'metric-tile'.",
-  },
-  suffix: {
-    type: "string" as const,
-    description:
-      "Text shown immediately after the number, e.g. '%' or ' users'. Only used when " +
-      "block_type is 'metric-tile'.",
-  },
-  decimals: {
-    type: "number" as const,
-    description: "Number of decimal places to show. Defaults to 0. Only used when block_type is 'metric-tile'.",
-  },
-  delta: {
-    type: "object" as const,
-    description:
-      "Optional comparison/trend indicator shown below the number and label — e.g. " +
-      '"+12%" in green with an up arrow. Only used when block_type is \'metric-tile\'. ' +
-      "This is NOT computed automatically — there's no built-in period-over-period " +
-      "comparison. If you want a real comparison, run a second query yourself (e.g. " +
-      "another data_binding/execute_sql lookup for the prior period) and compute the " +
-      "delta value before passing it here. Omit this entirely if you don't have a " +
-      "real comparison value — do not invent one.",
-    properties: {
-      value: {
-        type: "number" as const,
-        description:
-          "The delta amount, e.g. 12 for \"+12%\". Its sign determines the up/down " +
-          "arrow and color unless direction is set explicitly.",
-      },
-      direction: {
-        type: "string" as const,
-        enum: ["up", "down", "flat"],
-        description: "Controls the arrow/color shown. Defaults to inferring from value's sign.",
-      },
-      suffix: {
-        type: "string" as const,
-        description: "Text shown after the delta value, e.g. '%'.",
-      },
-    },
-    required: ["value"],
-  },
-};
-
-const addBuildingBlockSchema = {
+const addWidgetSchema = {
   type: "object" as const,
   properties: {
     parent_id: {
       type: "string" as const,
       description:
-        "Id of an existing container node to add this block into — the dashboard root " +
-        "(always a grid), a 'tabs' block (to add another tab), a 'tab' pane (to add " +
-        "content inside that tab), a 'collapsible' block (to add its one child — meant " +
-        "to hold exactly one; nothing stops you from adding a second, but the UI's own " +
-        "drag-and-drop only allows one, so don't), a 'carousel' block (to add another " +
-        "slide), or a 'slide' pane (to add content inside that slide). There is no way " +
-        "to create a second grid — the root is the only one a dashboard ever has.",
+        "Id of an existing container widget to add this one into — the dashboard " +
+        "root or a 'canvas' widget (both grids), a 'tabs' widget (to add another " +
+        "'tab' child), a 'tab' pane (to add content inside that tab), a " +
+        "'collapsible' widget (to add its one child — meant to hold exactly one; " +
+        "nothing stops you from adding a second, but the UI's own drag-and-drop " +
+        "only allows one, so don't), a 'carousel' widget (to add another 'slide' " +
+        "child), or a 'slide' pane (to add content inside that slide).",
     },
     index: {
       type: "number" as const,
       description: "Position among the parent's existing children",
     },
-    block_type: {
+    widget_type: {
       type: "string" as const,
       description:
-        "'markdown' for a text block, 'echarts' for a chart using an ECharts spec " +
-        "(requires data_binding and echarts_options), 'vega-lite' for a chart using a " +
-        "Vega-Lite spec (requires data_binding and vega_lite_spec), 'ag-grid-table' for " +
-        "a data table (requires data_binding; column_defs is optional — omit it to " +
-        "auto-derive one column per query result column), 'metric-tile' for a single " +
-        "live \"big number\" (requires data_binding resolving to one metric with no " +
-        "dimensions; label/prefix/suffix/decimals/delta are all optional), 'tabs' for a " +
-        "block that groups other blocks into switchable tabs (holds no content directly " +
-        "— add 'tab' children into it, see below). IMPORTANT: creating a 'tabs' block " +
-        "immediately auto-creates one starting tab pane of its own, labeled 'Tab 1', " +
-        "with no content — call get_dashboard_node on the new tabs id to find it before " +
-        "adding any tabs of your own, then either (a) add your first tab's own content " +
-        "directly into that existing pane (its id as parent_id) if a plain first tab " +
-        "named 'Tab 1' is acceptable, and only create new 'tab' children for the second " +
-        "tab onward, or (b) remove that pane with remove_dashboard_building_block first " +
-        "if you need a different label or ordering, then add all of your own tabs fresh. " +
-        "Do NOT simply add N new 'tab' children on top of the auto-created one — that " +
-        "leaves N+1 tabs total, with an empty extra one duplicating the label 'Tab 1'. " +
-        "'tab' for one tab inside a 'tabs' " +
-        "block (parent_id must be a 'tabs' node; requires a label; add the tab's actual " +
-        "content — a chart, text, etc. — as a separate call with this tab's id as " +
-        "parent_id, since a tab is itself a container, not content), 'collapsible' for a " +
-        "block that shows or hides a single child behind one show/hide toggle in its own " +
-        "header (holds no content directly — add exactly one child into it as a " +
-        "separate call with this block's id as parent_id; label is optional and, if " +
-        "set, is this block's own title), 'carousel' for a block that groups other " +
-        "blocks into slides navigated one at a time through a vertical strip of dots " +
-        "(holds no content directly and has no title of its own — add 'slide' children " +
-        "into it, see below), or 'slide' for one slide inside a 'carousel' block " +
-        "(parent_id must be a 'carousel' node; requires a label, used only for the " +
-        "outline/properties panel since the carousel's own dots carry no text; add the " +
-        "slide's actual content as a separate call with this slide's id as parent_id, " +
-        "since a slide is itself a container, not content). There is no " +
-        "'canvas'/grid block_type — the root is the only grid a dashboard has, it " +
-        "already exists, and nothing creates another one; to place a few blocks side by " +
-        "side in one row, give each a col_span that divides the root's own column count " +
-        "between them (see col_span's own description) and add them directly to the " +
-        "root. Prefer 'metric-tile' over an echarts gauge or graphic-text hack for a " +
-        "single KPI number — it needs no $bind marker and always renders a real number, " +
-        "not a one-element array. Other installed extensions may contribute additional " +
-        "block types — call list_dashboard_building_block_types first if you need " +
-        "something other than these eight, or aren't sure what's available (note that " +
-        "'tab' and 'slide' are themselves intentionally not listed there — they are " +
-        "private to 'tabs' and 'carousel' respectively, and only ever valid with that " +
-        "parent, unlike every other type in this list). Do NOT use 'tabs' or 'carousel' " +
-        "just to show one thing at a time by itself — reach for either when the user " +
-        "actually wants several alternative views switchable in the same spot (e.g. " +
-        "'Overview' vs. 'Detail'); reach for 'collapsible' instead when the user wants " +
-        "one thing hidden by default and revealed on demand, not switched between " +
+        "The kind of widget to add. Call the server tool list_widget_types to see the " +
+        "available types (built-ins plus any contributed by installed extensions), and " +
+        "get_widget_control_schema(widget_type) to learn what `props` that type takes. " +
+        "A 'canvas' is a layout container that holds other widgets in its own nested " +
+        "grid — but do NOT use one just to place widgets side by side (that's what " +
+        "col_span is for); only nest a 'canvas' when you need an independent sub-grid. " +
+        "'tabs' groups widgets into switchable tabs and holds no content directly — add " +
+        "'tab' children into it. IMPORTANT: creating a 'tabs' widget immediately " +
+        "auto-creates one starting tab pane of its own, labeled 'Tab 1', with no " +
+        "content — call get_widget on the new tabs id to find it before adding any tabs " +
+        "of your own, then either (a) add your first tab's own content directly into " +
+        "that existing pane (its id as parent_id) if a plain first tab named 'Tab 1' is " +
+        "acceptable, and only create new 'tab' children for the second tab onward, or " +
+        "(b) remove that pane with remove_widget first if you need a different label or " +
+        "ordering, then add all of your own tabs fresh. Do NOT simply add N new 'tab' " +
+        "children on top of the auto-created one — that leaves N+1 tabs total, with an " +
+        "empty extra one duplicating the label 'Tab 1'. 'collapsible' shows or hides a " +
+        "single child behind one show/hide toggle in its own header — holds no content " +
+        "directly; add exactly one child into it as a separate call. 'carousel' groups " +
+        "widgets into slides navigated one at a time through a vertical strip of dots — " +
+        "holds no content directly and has no title of its own; add 'slide' children " +
+        "into it. 'tab' and 'slide' are private to 'tabs' and 'carousel' respectively " +
+        "(parent_id must be that container, not any other node) and both require a " +
+        "`label` prop — for 'tab' this is the pane's own title (e.g. 'Overview'); for " +
+        "'slide' it's used only in the outline/properties panel, since the carousel's " +
+        "own on-canvas dots carry no visible text. Add the tab's/slide's actual content " +
+        "— a chart, text, etc. — as a separate call with that pane's id as parent_id, " +
+        "since a tab/slide is itself a container, not content. Do NOT use 'tabs' or " +
+        "'carousel' just to show one thing at a time by itself — reach for either when " +
+        "the user actually wants several alternative views switchable in the same spot " +
+        "(e.g. 'Overview' vs. 'Detail'); reach for 'collapsible' instead when the user " +
+        "wants one thing hidden by default and revealed on demand, not switched between " +
         "several.",
     },
     ...placementSchemaProperties,
-    content: {
-      type: "string" as const,
-      description: "Markdown content — only used when block_type is 'markdown'",
-    },
-    data_binding: dataBindingSchema,
-    echarts_options: {
-      ...echartsOptionsSchema,
-      description: `Required when block_type is 'echarts'. ${echartsOptionsSchema.description}`,
-    },
-    vega_lite_spec: {
-      ...vegaLiteSpecSchema,
-      description: `Required when block_type is 'vega-lite'. ${vegaLiteSpecSchema.description}`,
-    },
-    column_defs: {
-      ...columnDefsSchema,
-      description: `Only used when block_type is 'ag-grid-table'. ${columnDefsSchema.description}`,
-    },
-    ...metricTileSchemaProperties,
+    ...containerSchemaProperties,
+    props: propsSchema,
   },
-  required: ["parent_id", "index", "block_type"],
+  required: ["parent_id", "index", "widget_type"],
 };
 
-const updateBuildingBlockContentSchema = {
+const updateWidgetSchema = {
   type: "object" as const,
   properties: {
     node_id: { type: "string" as const },
-    content: {
-      type: "string" as const,
-      description: "New markdown content — only used when the node is a 'markdown' block",
+    props: {
+      ...propsSchema,
+      description:
+        "The content fields to change, matching the widget type's published schema. " +
+        "If you're setting a field that isn't already present in the widget's current " +
+        "props (from get_widget), discover its shape first with " +
+        "get_widget_control_schema (call it with `paths` to expand collapsed branches) " +
+        "— don't assume field names. Only the keys you pass are changed; nested objects " +
+        "are deep-merged, so you can change a single nested value without resending its " +
+        "siblings. Omit `dataBinding` to keep the existing query. To change " +
+        "placement/layout use update_widget_layout instead.",
     },
-    data_binding: dataBindingSchema,
-    echarts_options: echartsOptionsSchema,
-    vega_lite_spec: vegaLiteSpecSchema,
-    column_defs: columnDefsSchema,
-    ...metricTileSchemaProperties,
   },
-  required: ["node_id"],
+  required: ["node_id", "props"],
 };
 
-const moveBuildingBlockSchema = {
+const moveWidgetSchema = {
   type: "object" as const,
   properties: {
     node_id: { type: "string" as const },
-    new_parent_id: { type: "string" as const, description: "Id of the destination container node" },
+    new_parent_id: { type: "string" as const, description: "Id of the destination container widget" },
     new_index: { type: "number" as const },
   },
   required: ["node_id", "new_parent_id", "new_index"],
 };
 
-const updateLayoutSchema = {
+const updateWidgetLayoutSchema = {
   type: "object" as const,
   properties: {
     node_id: { type: "string" as const },
     ...placementSchemaProperties,
-    ...rootGridSchemaProperties,
+    ...containerSchemaProperties,
   },
   required: ["node_id"],
 };
@@ -471,129 +235,293 @@ function errorResult(e: unknown): { success: false; message: string } {
   return { success: false, message: e instanceof Error ? e.message : String(e) };
 }
 
-// Catches the model serializing the whole spec as a JSON string (or handing
-// back an array/null) instead of a real nested object. Left unchecked, that
-// string reaches ECharts' setOption()/vega-embed's render call as-is, which
-// throws trying to mutate a property onto a string primitive — a
-// render-time crash instead of a correctable tool error here. Shared by
-// echarts_options and vega_lite_spec, and by both add/update, since all four
-// combinations need the identical check.
-function chartSpecError(
-  spec: unknown,
-  fieldName: string,
-): { success: false; message: string } | undefined {
-  if (spec !== undefined && (typeof spec !== "object" || spec === null || Array.isArray(spec))) {
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+// Recursively merge a partial patch into a base object, so patching a nested
+// leaf (e.g. one series' color) doesn't drop its siblings. Non-object values
+// (and arrays) replace wholesale.
+function deepMerge(
+  base: Record<string, unknown>,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...base };
+  for (const [key, value] of Object.entries(patch)) {
+    const existing = out[key];
+    out[key] =
+      isPlainObject(value) && isPlainObject(existing)
+        ? deepMerge(existing, value)
+        : value;
+  }
+  return out;
+}
+
+// A widget whose props carry a `dataBinding` is data-backed; validate that
+// binding by actually running the query before the widget is created/updated,
+// so a bad metric/column name surfaces here as a correctable tool error rather
+// than as a render-time failure. Generic — it doesn't need to know the widget
+// type, only the shared `dataBinding` convention.
+async function validateDataBinding(
+  props: Record<string, unknown> | undefined,
+): Promise<{ success: false; message: string } | undefined> {
+  if (props && isPlainObject(props.dataBinding)) {
+    try {
+      await dashboard.fetchQueryData(props.dataBinding as unknown as DataBindingSpec);
+    } catch (e) {
+      return errorResult(e);
+    }
+  }
+  return undefined;
+}
+
+// A widget type's published control schema, fetched from the backend registry
+// (the single source of truth for what a type's props must contain). Cached per
+// type for the session. A plain GET returns the *base* schema — no enrichment,
+// so no request body and no CSRF/auth needed (unlike the POST the control panel
+// uses to enrich x-dynamic fields). Returns null for a type with no published
+// schema (a structural container like canvas/tabs — the endpoint 404s) or on a
+// transient fetch failure, so a missing/unreachable schema never blocks widget
+// creation — only a schema we positively read is enforced.
+const controlSchemaCache = new Map<string, Record<string, unknown> | null>();
+
+async function fetchControlSchema(
+  widgetType: string,
+): Promise<Record<string, unknown> | null> {
+  if (controlSchemaCache.has(widgetType)) return controlSchemaCache.get(widgetType)!;
+  try {
+    const response = await fetch(
+      `/api/v1/widgets/type/${encodeURIComponent(widgetType)}/control-schema`,
+    );
+    if (response.status === 404) {
+      controlSchemaCache.set(widgetType, null);
+      return null;
+    }
+    if (!response.ok) return null; // transient — don't cache, don't block
+    const data = await response.json();
+    const schema = (data.result ?? null) as Record<string, unknown> | null;
+    controlSchemaCache.set(widgetType, schema);
+    return schema;
+  } catch {
+    return null; // network error — don't block widget creation
+  }
+}
+
+// Enforce the widget type's own required props (from its published schema) so a
+// data-backed widget can't be created/updated missing a mandatory branch — e.g.
+// an 'echarts' or 'metric-tile' without its `dataBinding`. Complements
+// validateDataBinding, which only fires once a dataBinding is *present*; this
+// catches it being absent entirely. Types with no published schema (canvas,
+// tabs, ...) declare no requirements, so nothing is enforced for them.
+async function validateRequiredProps(
+  widgetType: string,
+  props: Record<string, unknown> | undefined,
+): Promise<{ success: false; message: string } | undefined> {
+  const schema = await fetchControlSchema(widgetType);
+  const required = Array.isArray(schema?.required)
+    ? (schema!.required as string[])
+    : [];
+  const missing = required.filter(
+    key => !props || props[key] === undefined || props[key] === null,
+  );
+  if (missing.length > 0) {
     return {
       success: false,
       message:
-        `${fieldName} must be a JSON object, not a string, array, or null. Pass it as ` +
-        "a real nested object in the tool call, not a JSON-encoded string.",
+        `The "${widgetType}" widget requires these props: ${missing.join(", ")}. ` +
+        `Call get_widget_control_schema("${widgetType}") to see their shape, then ` +
+        `include them (e.g. a data-backed widget needs a dataBinding).`,
     };
   }
   return undefined;
 }
 
-type DataBindingInput = {
-  dataset_id: number;
-  metrics: (
-    | string
-    | {
-        expressionType: "SIMPLE";
-        column: { column_name: string };
-        aggregate: string;
-        label?: string;
-      }
-  )[];
-  dimensions?: string[];
-  row_limit?: number;
-};
+// A dynamic map branch whose keys must be real data values, per its schema's
+// `x-key-source` hint: the path to the map, and the prop naming the dimension
+// whose distinct values are the valid keys (falling back to the last dimension).
+interface DynamicKeyedBranch {
+  path: string[];
+  dimensionFromProp: string;
+}
 
-function toDataBinding(input: DataBindingInput) {
-  return {
-    datasetId: input.dataset_id,
-    metrics: input.metrics,
-    dimensions: input.dimensions,
-    rowLimit: input.row_limit,
+// Resolve a node's single `$ref` (optionally an allOf-wrapped one) against
+// `$defs` so the walk can descend into referenced definitions.
+function derefSchema(
+  node: Record<string, unknown>,
+  defs: Record<string, unknown>,
+): Record<string, unknown> {
+  const ref =
+    typeof node.$ref === "string"
+      ? node.$ref
+      : Array.isArray(node.allOf) &&
+          node.allOf.length === 1 &&
+          isPlainObject(node.allOf[0]) &&
+          typeof (node.allOf[0] as Record<string, unknown>).$ref === "string"
+        ? ((node.allOf[0] as Record<string, unknown>).$ref as string)
+        : undefined;
+  if (!ref) return node;
+  const target = defs[ref.split("/").pop() as string];
+  return isPlainObject(target) ? target : node;
+}
+
+// Walk a control schema for dynamic maps that declare an `x-key-source`, so the
+// client can validate their keys generically — no per-widget knowledge, just
+// the schema convention.
+function findDynamicKeyedBranches(
+  schema: Record<string, unknown>,
+): DynamicKeyedBranch[] {
+  const defs = (isPlainObject(schema.$defs) ? schema.$defs : {}) as Record<
+    string,
+    unknown
+  >;
+  const out: DynamicKeyedBranch[] = [];
+  const visit = (raw: unknown, path: string[], depth: number) => {
+    if (depth > 8 || !isPlainObject(raw)) return;
+    const node = derefSchema(raw, defs);
+    const keySource = node["x-key-source"];
+    if (node["x-dynamic"] && isPlainObject(keySource)) {
+      const prop = keySource.dimensionFromProp;
+      if (typeof prop === "string") out.push({ path, dimensionFromProp: prop });
+    }
+    if (isPlainObject(node.properties)) {
+      for (const [key, child] of Object.entries(node.properties)) {
+        visit(child, [...path, key], depth + 1);
+      }
+    }
   };
+  visit(schema, [], 0);
+  return out;
+}
+
+function getAtPath(
+  obj: Record<string, unknown>,
+  path: string[],
+): unknown {
+  let cur: unknown = obj;
+  for (const seg of path) {
+    if (!isPlainObject(cur)) return undefined;
+    cur = cur[seg];
+  }
+  return cur;
+}
+
+// Validate the keys of any dynamic map (e.g. per-series styling) against the
+// real distinct values of the dimension its schema says they come from, by
+// running the widget's own query. Catches an agent inventing a key like "F"
+// when the actual values are "boy"/"girl", and the error lists the valid values
+// so it can self-correct. Generic: driven entirely by the `x-key-source` hint.
+async function validateDynamicKeys(
+  widgetType: string,
+  props: Record<string, unknown> | undefined,
+): Promise<{ success: false; message: string } | undefined> {
+  if (!isPlainObject(props)) return undefined;
+  const schema = await fetchControlSchema(widgetType);
+  if (!schema) return undefined;
+  const binding = props.dataBinding;
+  if (!isPlainObject(binding)) return undefined;
+
+  for (const branch of findDynamicKeyedBranches(schema)) {
+    const map = getAtPath(props, branch.path);
+    if (!isPlainObject(map)) continue;
+    const keys = Object.keys(map);
+    if (keys.length === 0) continue;
+
+    const dims = Array.isArray(binding.dimensions) ? binding.dimensions : [];
+    const named = props[branch.dimensionFromProp];
+    const dimension =
+      typeof named === "string" && named
+        ? named
+        : typeof dims[dims.length - 1] === "string"
+          ? (dims[dims.length - 1] as string)
+          : undefined;
+    if (!dimension) continue;
+
+    let rows;
+    try {
+      ({ rows } = await dashboard.fetchQueryData(
+        binding as unknown as DataBindingSpec,
+      ));
+    } catch {
+      continue; // can't reach the data to validate — don't block on it
+    }
+    const valid = new Set(
+      rows.map(row => String((row as Record<string, unknown>)[dimension] ?? "")),
+    );
+    const invalid = keys.filter(key => !valid.has(key));
+    if (invalid.length > 0) {
+      return {
+        success: false,
+        message:
+          `Invalid ${branch.path.join(".")} ` +
+          `${invalid.length === 1 ? "key" : "keys"}: ${invalid.join(", ")}. ` +
+          `Those aren't values of "${dimension}" — the valid values are: ` +
+          `${[...valid].join(", ")}. Use one of those exactly.`,
+      };
+    }
+  }
+  return undefined;
 }
 
 /**
  * Client-side tools that let the chat agent manipulate the Dashboard v2
- * prototype canvas — mirrors the SQL Lab client-tool pattern (name,
- * description, JSON-schema input, a handler calling straight into the
- * relevant `@apache-superset/core` namespace), applied to `dashboard`
- * instead of `sqlLab`. Unlike SQL Lab's tools, these aren't routed through
- * a persistent agent-SDK connection — the chat extension's own send/resume
- * loop (see ChatPanel.tsx) dispatches to them directly, since `dashboard`
- * state lives only in this browser tab.
+ * canvas. The state lives only in this browser tab, so these run client-side
+ * (dispatched by ChatPanel's send/resume loop) rather than through the MCP
+ * server.
+ *
+ * Deliberately thin and schema-agnostic: the tree/placement operations
+ * (add/remove/move/layout) are the dashboard's fixed grammar, and a widget's
+ * *content* is a generic `props` object validated against that widget type's
+ * own published schema — which the agent discovers via the server tools
+ * `list_widget_types` and `get_widget_control_schema` (the latter returns the
+ * minimal root, or the requested subtrees when called with `paths`) rather than
+ * from schemas duplicated here.
  */
 export default function useDashboardTools(): ClientTool[] {
   return useMemo(
     () => [
       {
-        name: "list_dashboard_building_block_types",
-        description:
-          "Lists every dashboard building block type available as `block_type` for " +
-          "add_dashboard_building_block — both the built-in ones (markdown, echarts, " +
-          "ag-grid-table, metric-tile, tabs, collapsible, carousel) and any installed " +
-          "extension's (e.g. vega-lite). The root grid itself is not in this list — it " +
-          "already exists on every dashboard and is not something you add. Call this " +
-          "whenever the user asks for something that doesn't obviously map to one of " +
-          "the built-in types (e.g. a named component, widget, or feature) before " +
-          "assuming it doesn't exist.",
-        inputSchema: emptyInputSchema,
-        handler: () => ({
-          success: true,
-          block_types: views.getViews(BUILDING_BLOCKS_LOCATION) ?? [],
-        }),
-      },
-      {
         name: "get_dashboard_root",
         description:
-          "Returns the dashboard's root grid node, including its child node ids. " +
-          "Use this to see the top-level layout before adding blocks.",
+          "Returns the dashboard's root canvas widget, including its child node ids. " +
+          "Use this to see the top-level layout before adding widgets.",
         inputSchema: emptyInputSchema,
         handler: () => ({ success: true, node: dashboard.getRoot() }),
       },
       {
-        name: "get_dashboard_node",
+        name: "get_widget",
         description:
-          "Returns a specific dashboard node by id, including its type, layout, " +
-          "props, and children (for the root, or a 'tabs'/'tab'/'collapsible'/" +
-          "'carousel'/'slide' node).",
+          "Returns a specific widget by id, including its type, layout, props, and " +
+          "(for canvas widgets, or a 'tabs'/'tab'/'collapsible'/'carousel'/'slide' " +
+          "widget) children. NOTE: props show only what is currently SET, not the " +
+          "full set of options the widget supports — for that, consult its control " +
+          "schema (get_widget_control_schema).",
         inputSchema: nodeIdSchema,
         handler: (x: unknown) => {
           const input = x as { node_id: string };
           const node = dashboard.getNode(input.node_id);
-          if (!node) return { success: false, message: `Node "${input.node_id}" not found` };
+          if (!node) return { success: false, message: `Widget "${input.node_id}" not found` };
           return { success: true, node };
         },
       },
       {
-        name: "add_dashboard_building_block",
+        name: "add_widget",
         description:
-          "Adds a new node to the dashboard as a child of an existing container node " +
-          "(the root, or a 'tabs'/'tab'/'collapsible'/'carousel'/'slide' node — see " +
-          "parent_id). Returns the new node's id. The root is always a grid (24 " +
-          "columns by default) — use col_span/row_span to size this block within it; " +
-          "leaving them unset makes the block take the whole row at a minimal height, " +
-          "so for anything other than a simple top-to-bottom stack (e.g. an executive " +
-          "report with multiple tiles per row, or charts with real height), set them " +
-          "explicitly. A 'tabs', 'tab', 'collapsible', 'carousel', or 'slide' parent " +
-          "has no grid, so col_span/col/row are ignored for a block added into one — " +
-          "but row_span is NOT ignored there: leave it unset so the block fills the " +
-          "container's available height (see row_span's own description for why " +
-          "setting it there is almost always a mistake). For block_type " +
-          "'echarts', 'vega-lite', 'ag-grid-table', or 'metric-tile', the data_binding is " +
-          "validated by actually running the query before the block is created — if it " +
-          "fails (e.g. an unknown column/metric name), no node is created and the error " +
-          "is returned so you can correct it and retry.",
-        inputSchema: addBuildingBlockSchema,
+          "Adds a new widget to the dashboard as a child of an existing container " +
+          "widget (a grid — the root or a 'canvas' — or a 'tabs'/'tab'/'collapsible'/" +
+          "'carousel'/'slide' widget, see parent_id), and returns its id. Provide " +
+          "`widget_type`, its placement within the parent (col_span/row_span/col/row " +
+          "— ignored, except row_span, when the parent has no grid of its own; see " +
+          "each field's own description), and — for content widgets — `props` " +
+          "matching that type's published schema (discover it with " +
+          "get_widget_control_schema(widget_type)). If props includes a dataBinding, " +
+          "the query is run to validate it before the widget is created; on failure no " +
+          "widget is created and the error is returned so you can correct it.",
+        inputSchema: addWidgetSchema,
         handler: async (x: unknown) => {
           const input = x as {
             parent_id: string;
             index: number;
-            block_type: string;
+            widget_type: string;
             col_span?: number;
             row_span?: number;
             col?: number;
@@ -601,87 +529,41 @@ export default function useDashboardTools(): ClientTool[] {
             columns?: number;
             gap?: number;
             row_unit?: number;
-            content?: string;
-            data_binding?: DataBindingInput;
-            echarts_options?: Record<string, unknown>;
-            vega_lite_spec?: Record<string, unknown>;
-            column_defs?: Record<string, unknown>[];
-            label?: string;
-            prefix?: string;
-            suffix?: string;
-            decimals?: number;
-            delta?: { value: number; direction?: string; suffix?: string };
+            props?: Record<string, unknown>;
           };
 
-          let props: Record<string, unknown> | undefined;
-          if (input.block_type === "markdown") {
-            props = { content: input.content ?? "" };
-          } else if (input.block_type === "tab" || input.block_type === "slide") {
-            if (!input.label) {
+          // 'tab' and 'slide' are structural panes with no published control
+          // schema (like 'canvas'/'tabs'/'collapsible'/'carousel'), so the
+          // generic required-props check below can't enforce their one real
+          // requirement — a label to show in the tab strip / outline — and
+          // needs this explicit check instead.
+          if (input.widget_type === "tab" || input.widget_type === "slide") {
+            if (typeof input.props?.label !== "string" || !input.props.label) {
               return {
                 success: false,
-                message: `block_type '${input.block_type}' requires a label`,
-              };
-            }
-            props = { label: input.label };
-          } else if (
-            input.block_type === "echarts" ||
-            input.block_type === "vega-lite" ||
-            input.block_type === "ag-grid-table" ||
-            input.block_type === "metric-tile"
-          ) {
-            if (!input.data_binding) {
-              return { success: false, message: `block_type '${input.block_type}' requires data_binding` };
-            }
-
-            if (input.block_type === "ag-grid-table") {
-              if (input.column_defs !== undefined && !Array.isArray(input.column_defs)) {
-                return { success: false, message: "column_defs must be an array of column definition objects" };
-              }
-            } else if (input.block_type === "echarts" || input.block_type === "vega-lite") {
-              const specField = input.block_type === "echarts" ? "echarts_options" : "vega_lite_spec";
-              const spec = input.block_type === "echarts" ? input.echarts_options : input.vega_lite_spec;
-              const optionsError = chartSpecError(spec, specField);
-              if (optionsError) return optionsError;
-            }
-            // metric-tile: label/prefix/suffix/decimals/delta are plain scalar
-            // fields with no "spec" object to validate here — inputSchema
-            // already constrains their shape.
-
-            const dataBinding = toDataBinding(input.data_binding);
-            // Validate by actually running the query — a bad column/metric name
-            // otherwise wouldn't surface until the node renders, well after this
-            // tool call has already reported success and the model has moved on.
-            try {
-              await dashboard.fetchQueryData(dataBinding);
-            } catch (e) {
-              return errorResult(e);
-            }
-
-            if (input.block_type === "echarts") {
-              props = { dataBinding, echartsOptions: input.echarts_options };
-            } else if (input.block_type === "vega-lite") {
-              props = { dataBinding, vegaLiteSpec: input.vega_lite_spec };
-            } else if (input.block_type === "ag-grid-table") {
-              props = {
-                dataBinding,
-                ...(input.column_defs ? { columnDefs: input.column_defs } : {}),
-              };
-            } else {
-              props = {
-                dataBinding,
-                ...(input.label !== undefined ? { label: input.label } : {}),
-                ...(input.prefix !== undefined ? { prefix: input.prefix } : {}),
-                ...(input.suffix !== undefined ? { suffix: input.suffix } : {}),
-                ...(input.decimals !== undefined ? { decimals: input.decimals } : {}),
-                ...(input.delta !== undefined ? { delta: input.delta } : {}),
+                message: `widget_type '${input.widget_type}' requires a "label" prop`,
               };
             }
           }
 
+          const requiredError = await validateRequiredProps(
+            input.widget_type,
+            input.props,
+          );
+          if (requiredError) return requiredError;
+
+          const bindingError = await validateDataBinding(input.props);
+          if (bindingError) return bindingError;
+
+          const dynamicKeyError = await validateDynamicKeys(
+            input.widget_type,
+            input.props,
+          );
+          if (dynamicKeyError) return dynamicKeyError;
+
           try {
-            const nodeId = dashboard.addBuildingBlock(input.parent_id, input.index, {
-              type: input.block_type,
+            const nodeId = dashboard.addWidget(input.parent_id, input.index, {
+              type: input.widget_type,
               layout: {
                 colSpan: input.col_span,
                 rowSpan: input.row_span,
@@ -691,59 +573,60 @@ export default function useDashboardTools(): ClientTool[] {
                 gap: input.gap,
                 rowUnit: input.row_unit,
               },
-              props,
+              props: input.props,
             });
-            return { success: true, message: `Added "${input.block_type}" block`, node_id: nodeId };
+            return { success: true, message: `Added "${input.widget_type}" widget`, node_id: nodeId };
           } catch (e) {
             return errorResult(e);
           }
         },
       },
       {
-        name: "remove_dashboard_building_block",
+        name: "remove_widget",
         description:
-          "Removes a node (and, if it holds children — a 'tabs', 'tab', 'collapsible', " +
-          "'carousel', or 'slide' node — its entire subtree) from the dashboard.",
+          "Removes a widget (and, if it holds children — a 'canvas', 'tabs', 'tab', " +
+          "'collapsible', 'carousel', or 'slide' widget — its entire subtree) from " +
+          "the dashboard.",
         inputSchema: nodeIdSchema,
         handler: (x: unknown) => {
           const input = x as { node_id: string };
-          // dashboard.removeBuildingBlock() silently no-ops for an id that
-          // doesn't exist (rather than throwing) — check first so a stale
-          // or mistaken node_id is reported as a failure instead of a false
-          // "Removed" success.
+          // dashboard.removeWidget() silently no-ops for an id that doesn't
+          // exist (rather than throwing) — check first so a stale or mistaken
+          // node_id is reported as a failure instead of a false "Removed"
+          // success.
           if (!dashboard.getNode(input.node_id)) {
-            return { success: false, message: `Node "${input.node_id}" not found` };
+            return { success: false, message: `Widget "${input.node_id}" not found` };
           }
           try {
-            dashboard.removeBuildingBlock(input.node_id);
-            return { success: true, message: `Removed node "${input.node_id}"` };
+            dashboard.removeWidget(input.node_id);
+            return { success: true, message: `Removed widget "${input.node_id}"` };
           } catch (e) {
             return errorResult(e);
           }
         },
       },
       {
-        name: "move_dashboard_building_block",
-        description: "Moves an existing node to a new container parent at a given index.",
-        inputSchema: moveBuildingBlockSchema,
+        name: "move_widget",
+        description: "Moves an existing widget to a new container parent at a given index.",
+        inputSchema: moveWidgetSchema,
         handler: (x: unknown) => {
           const input = x as { node_id: string; new_parent_id: string; new_index: number };
           try {
-            dashboard.moveBuildingBlock(input.node_id, input.new_parent_id, input.new_index);
-            return { success: true, message: `Moved node "${input.node_id}"` };
+            dashboard.moveWidget(input.node_id, input.new_parent_id, input.new_index);
+            return { success: true, message: `Moved widget "${input.node_id}"` };
           } catch (e) {
             return errorResult(e);
           }
         },
       },
       {
-        name: "update_dashboard_layout",
+        name: "update_widget_layout",
         description:
-          "Updates layout properties of an existing node — either how it's placed " +
-          "within the root's grid (col_span/row_span/col/row) or, if node_id is the " +
-          "root itself, the root's own grid config for its children " +
-          "(columns/gap/row_unit). Omit fields you don't want to change.",
-        inputSchema: updateLayoutSchema,
+          "Updates layout properties of an existing widget — either how it's placed " +
+          "within its parent's grid (col_span/row_span/col/row) or, if it's the root " +
+          "or a canvas, its own grid config for its children (columns/gap/row_unit). " +
+          "Omit fields you don't want to change.",
+        inputSchema: updateWidgetLayoutSchema,
         handler: (x: unknown) => {
           const input = x as {
             node_id: string;
@@ -772,148 +655,58 @@ export default function useDashboardTools(): ClientTool[] {
         },
       },
       {
-        name: "update_dashboard_building_block",
+        name: "update_widget",
         description:
-          "Updates an existing block's CONTENT in place — the markdown text for a " +
-          "'markdown' node, the data_binding/echarts_options for an 'echarts' node, the " +
-          "data_binding/vega_lite_spec for a 'vega-lite' node, the data_binding/column_defs " +
-          "for an 'ag-grid-table' node, or the data_binding/label/prefix/suffix/decimals/" +
-          "delta for a 'metric-tile' node. Use this instead of " +
-          "remove_dashboard_building_block + add_dashboard_building_block whenever you're " +
-          "editing something that already exists (e.g. changing a chart's colors, axis " +
-          "labels, or series config, or rewording a text block) rather than adding " +
-          "something new — updating in place keeps the node's position, layout, and " +
-          "identity intact instead of losing them to a delete-and-recreate. Omit " +
-          "data_binding to keep the block's existing query and only change how it's " +
-          "rendered (e.g. colors/labels/columns) — passing echarts_options/vega_lite_spec/" +
-          "column_defs/label/prefix/suffix/decimals/delta alone does not re-run the query. " +
-          "When data_binding IS provided, it's validated by actually running the query " +
-          "before anything is changed, same as add_dashboard_building_block.",
-        inputSchema: updateBuildingBlockContentSchema,
+          "Updates an existing widget's CONTENT in place — pass `props` with the fields " +
+          "to change, matching the widget type's published schema (discover it with " +
+          "get_widget_control_schema, passing `paths` to expand collapsed branches). " +
+          "Before telling the user a requested customization isn't supported, ALWAYS " +
+          "check that schema — including expanding relevant collapsed branches (e.g. " +
+          "an appearance/style branch) — rather than assuming from the current props " +
+          "or the widget's name; the capability may live in a branch you haven't " +
+          "looked at. Use this instead of remove_widget + add_widget whenever you're " +
+          "editing something that already exists — it keeps the widget's position, " +
+          "layout, and identity intact. Only the keys you pass change; nested objects " +
+          "are deep-merged, so you can change a single nested value without resending " +
+          "its siblings. Omit " +
+          "`dataBinding` to keep the existing query; when provided it's validated by " +
+          "running the query first, same as add_widget.",
+        inputSchema: updateWidgetSchema,
         handler: async (x: unknown) => {
-          const input = x as {
-            node_id: string;
-            content?: string;
-            data_binding?: DataBindingInput;
-            echarts_options?: Record<string, unknown>;
-            vega_lite_spec?: Record<string, unknown>;
-            column_defs?: Record<string, unknown>[];
-            label?: string;
-            prefix?: string;
-            suffix?: string;
-            decimals?: number;
-            delta?: { value: number; direction?: string; suffix?: string };
-          };
+          const input = x as { node_id: string; props?: Record<string, unknown> };
 
           const node = dashboard.getNode(input.node_id);
-          if (!node) return { success: false, message: `Node "${input.node_id}" not found` };
-
-          if (node.type === "markdown") {
-            if (input.content === undefined) {
-              return { success: false, message: "content is required to update a markdown block" };
-            }
-            try {
-              dashboard.updateProps(input.node_id, { content: input.content });
-              return { success: true, message: `Updated content for "${input.node_id}"` };
-            } catch (e) {
-              return errorResult(e);
-            }
+          if (!node) return { success: false, message: `Widget "${input.node_id}" not found` };
+          if (!isPlainObject(input.props)) {
+            return { success: false, message: "props must be an object of the fields to change" };
           }
 
-          if (node.type === "metric-tile") {
-            const hasDisplayFields =
-              input.label !== undefined ||
-              input.prefix !== undefined ||
-              input.suffix !== undefined ||
-              input.decimals !== undefined ||
-              input.delta !== undefined;
-            if (!input.data_binding && !hasDisplayFields) {
-              return {
-                success: false,
-                message:
-                  "Provide data_binding and/or label/prefix/suffix/decimals/delta to update a metric-tile block",
-              };
-            }
+          const bindingError = await validateDataBinding(input.props);
+          if (bindingError) return bindingError;
 
-            const props: Record<string, unknown> = {};
-            if (input.data_binding) {
-              const dataBinding = toDataBinding(input.data_binding);
-              try {
-                await dashboard.fetchQueryData(dataBinding);
-              } catch (e) {
-                return errorResult(e);
-              }
-              props.dataBinding = dataBinding;
-            }
-            if (input.label !== undefined) props.label = input.label;
-            if (input.prefix !== undefined) props.prefix = input.prefix;
-            if (input.suffix !== undefined) props.suffix = input.suffix;
-            if (input.decimals !== undefined) props.decimals = input.decimals;
-            if (input.delta !== undefined) props.delta = input.delta;
+          // Deep-merge into the widget's existing props so a partial patch
+          // (e.g. one series' color) doesn't drop untouched siblings.
+          const existing = (node.props as Record<string, unknown>) ?? {};
+          const merged = deepMerge(existing, input.props);
 
-            try {
-              dashboard.updateProps(input.node_id, props);
-              return { success: true, message: `Updated content for "${input.node_id}"` };
-            } catch (e) {
-              return errorResult(e);
-            }
+          // Enforce required props against the merged result, not the patch —
+          // a valid restyle patch legitimately omits already-present required
+          // fields like dataBinding.
+          const requiredError = await validateRequiredProps(node.type, merged);
+          if (requiredError) return requiredError;
+
+          // Validate dynamic-map keys (e.g. per-series styling) against the real
+          // dimension values, so an invented key like "F" is rejected with the
+          // valid values rather than silently written.
+          const dynamicKeyError = await validateDynamicKeys(node.type, merged);
+          if (dynamicKeyError) return dynamicKeyError;
+
+          try {
+            dashboard.updateProps(input.node_id, merged);
+            return { success: true, message: `Updated "${node.type}" widget "${input.node_id}"` };
+          } catch (e) {
+            return errorResult(e);
           }
-
-          if (node.type === "echarts" || node.type === "vega-lite" || node.type === "ag-grid-table") {
-            const isTable = node.type === "ag-grid-table";
-            const specField = isTable
-              ? "column_defs"
-              : node.type === "echarts"
-                ? "echarts_options"
-                : "vega_lite_spec";
-            const spec = isTable
-              ? input.column_defs
-              : node.type === "echarts"
-                ? input.echarts_options
-                : input.vega_lite_spec;
-
-            if (!input.data_binding && spec === undefined) {
-              return {
-                success: false,
-                message: `Provide data_binding and/or ${specField} to update a ${node.type} block`,
-              };
-            }
-            if (isTable) {
-              if (spec !== undefined && !Array.isArray(spec)) {
-                return { success: false, message: "column_defs must be an array of column definition objects" };
-              }
-            } else {
-              const optionsError = chartSpecError(spec, specField);
-              if (optionsError) return optionsError;
-            }
-
-            const props: Record<string, unknown> = {};
-            if (input.data_binding) {
-              const dataBinding = toDataBinding(input.data_binding);
-              try {
-                await dashboard.fetchQueryData(dataBinding);
-              } catch (e) {
-                return errorResult(e);
-              }
-              props.dataBinding = dataBinding;
-            }
-            if (spec !== undefined) {
-              props[isTable ? "columnDefs" : node.type === "echarts" ? "echartsOptions" : "vegaLiteSpec"] = spec;
-            }
-
-            try {
-              dashboard.updateProps(input.node_id, props);
-              return { success: true, message: `Updated content for "${input.node_id}"` };
-            } catch (e) {
-              return errorResult(e);
-            }
-          }
-
-          return {
-            success: false,
-            message: `Node "${input.node_id}" is a "${node.type}" block, which has no content ` +
-              "to update this way — use update_dashboard_layout for its col_span/row_span/etc.",
-          };
         },
       },
     ],

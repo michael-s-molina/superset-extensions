@@ -38,6 +38,11 @@ ServerToolCaller = Callable[[str, dict[str, Any]], Any]
 @dataclass
 class FinalAnswer:
     content: str
+    # Trace of server (MCP) tools the model called on the backend during this
+    # leg — display-only, so the frontend can show them alongside the client
+    # tool calls it dispatched itself. Each entry: {id, name, arguments,
+    # result, is_error}.
+    server_calls: list[dict[str, Any]] = field(default_factory=list)
     type: Literal["final"] = "final"
 
 
@@ -53,11 +58,16 @@ class ClientActionRequired:
     `resolved_results` holds whatever server tools in that same turn were
     already executed, so `resume()` can merge them with the client's results
     into one complete turn instead of losing that work.
+
+    `server_calls` is the display-only trace of server tools already run this
+    leg (name, arguments, result), distinct from `resolved_results` (the raw
+    tool_result blocks needed to stitch the conversation back together).
     """
 
     state: list[dict[str, Any]]
     resolved_results: list[dict[str, Any]] = field(default_factory=list)
     calls: list[dict[str, Any]] = field(default_factory=list)
+    server_calls: list[dict[str, Any]] = field(default_factory=list)
     type: Literal["client_action"] = "client_action"
 
 
