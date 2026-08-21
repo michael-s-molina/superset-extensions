@@ -28,6 +28,29 @@ function barOptions(title: string, dimension: string) {
   };
 }
 
+// Pie's series[].data needs {name, value} pairs per slice, not two parallel
+// arrays the way bar's xAxis/series split does — the "records" $bind source
+// zips the dimension and metric columns into exactly that shape, one object
+// per query result row.
+function pieOptions(title: string, dimension: string) {
+  return {
+    title: { text: title },
+    tooltip: { trigger: "item" },
+    series: [
+      {
+        type: "pie",
+        radius: "65%",
+        data: {
+          $bind: {
+            source: "records",
+            fields: { name: dimension, value: "Total Sales" },
+          },
+        },
+      },
+    ],
+  };
+}
+
 // A `metric-tile` needs exactly one metric and no dimensions — the query
 // returns a single row, and the tile shows that row's one value directly.
 function singleMetric(columnName: string, aggregate: string, label: string) {
@@ -41,11 +64,17 @@ function singleMetric(columnName: string, aggregate: string, label: string) {
  * Replaces the dashboard's current top-level content with a fixed
  * 11-widget executive-report-style layout — title, a 4-tile KPI row (real
  * `metric-tile` widgets, not the markdown-with-bold-text stand-in this used
- * before that widget type existed), three `echarts` chart rows, a commentary
- * widget, and an `ag-grid-table` detail table — all bound to the
- * `cleaned_sales_data` example dataset, so the canvas/drag/resize behavior
- * can be exercised against realistic content without a chat/AI round trip
- * each time.
+ * before that widget type existed), four `echarts` chart rows (three bars
+ * and one pie, deliberately mixed — a click resolves the same way regardless
+ * of series type, since ECharts hands both a bar's category and a pie's
+ * slice the same `name` field), a commentary widget, and an `ag-grid-table`
+ * detail table — all bound to the `cleaned_sales_data` example dataset, so
+ * the canvas/drag/resize behavior can be exercised against realistic content
+ * without a chat/AI round trip each time. Every chart has `crossFilter:
+ * true` — each has exactly one dimension, so clicking a bar or pie slice in
+ * any one of them narrows every other query-bound widget reading the same
+ * dataset, demonstrating the general event bus with no filter widget
+ * anywhere on the canvas.
  */
 export function buildDefaultDashboardReport(): void {
   const root = dashboard.getRoot();
@@ -53,8 +82,13 @@ export function buildDefaultDashboardReport(): void {
 
   dashboard.addWidget(root.id, 0, {
     type: "markdown",
-    layout: { colSpan: 24, rowSpan: 3 },
-    props: { content: "# Acme Corp — Q3 Executive Report" },
+    layout: { colSpan: 24, rowSpan: 4 },
+    props: {
+      content:
+        "# Acme Corp — Q3 Executive Report\n\n" +
+        "A summary of Q3 sales performance across product lines, territories, " +
+        "and deal sizes.",
+    },
   });
   dashboard.addWidget(root.id, 1, {
     type: "metric-tile",
@@ -97,6 +131,7 @@ export function buildDefaultDashboardReport(): void {
     props: {
       dataBinding: salesByDimension("product_line"),
       echartsOptions: barOptions("Sales by Product Line", "product_line"),
+      crossFilter: true,
     },
   });
   dashboard.addWidget(root.id, 6, {
@@ -105,6 +140,7 @@ export function buildDefaultDashboardReport(): void {
     props: {
       dataBinding: salesByDimension("territory"),
       echartsOptions: barOptions("Sales by Territory", "territory"),
+      crossFilter: true,
     },
   });
   dashboard.addWidget(root.id, 7, {
@@ -112,7 +148,8 @@ export function buildDefaultDashboardReport(): void {
     layout: { colSpan: 16, rowSpan: 14 },
     props: {
       dataBinding: salesByDimension("deal_size"),
-      echartsOptions: barOptions("Sales by Deal Size", "deal_size"),
+      echartsOptions: pieOptions("Sales by Deal Size", "deal_size"),
+      crossFilter: true,
     },
   });
   dashboard.addWidget(root.id, 8, {
@@ -130,6 +167,7 @@ export function buildDefaultDashboardReport(): void {
     props: {
       dataBinding: salesByDimension("month"),
       echartsOptions: barOptions("Sales by Month", "month"),
+      crossFilter: true,
     },
   });
   dashboard.addWidget(root.id, 10, {

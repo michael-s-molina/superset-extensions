@@ -41,21 +41,27 @@ const placementSchemaProperties = {
       "widgets side by side in one row, give each a col_span that divides the " +
       "parent's column count between them (e.g. three tiles at col_span 8 each " +
       "fill a 24-column row). Ignored if the parent is a 'tabs', 'tab', " +
-      "'collapsible', 'carousel', or 'slide' widget — those have no grid to span.",
+      "'collapsible', 'carousel', 'slide', or 'filter.bar' widget — none of those " +
+      "have a grid to span.",
   },
   row_span: {
     type: "number" as const,
     description:
-      "How many row tracks this widget spans. Defaults to 1 if omitted, which is a " +
-      "single row unit — visually very short. Set this explicitly for any widget " +
-      "that needs real height: roughly 10-14 for a normal chart, more for a large " +
-      "hero chart or a tall text/content widget. EXCEPTION: if the parent is a " +
-      "'tabs', 'tab', 'collapsible', 'carousel', or 'slide' widget, DO NOT set " +
-      "row_span at all — that parent has no grid, so it reads this same field as a " +
-      "literal pixel height rather than a row count, and a grid-tuned number like " +
-      "10-14 would render as a 10-14 pixel sliver. Leaving row_span unset there " +
-      "makes the widget flex to fill the container's own available height instead " +
-      "— almost always what you want.",
+      "How many row tracks this widget spans. Defaults to 1 if omitted (3 for " +
+      "widget_type 'filter.select'/'filter.bar' — still compact, but the least " +
+      "that clears the ~130px a filter's own control needs to avoid clipping), " +
+      "which is visually very short for anything else — set this explicitly for " +
+      "any widget that needs real height: roughly 10-14 for a normal chart, more " +
+      "for a large hero chart or a tall text/content widget. EXCEPTION: if the " +
+      "parent is a 'tabs', 'tab', 'collapsible', 'carousel', or 'slide' widget, DO " +
+      "NOT set row_span at all — that parent has no grid, so it reads this same " +
+      "field as a literal pixel height rather than a row count, and a grid-tuned " +
+      "number like 10-14 would render as a 10-14 pixel sliver. Leaving row_span " +
+      "unset there makes the widget flex to fill the container's own available " +
+      "height instead — almost always what you want. A 'filter.bar' parent is " +
+      "different again: it fixes every filter's size itself, so row_span (like " +
+      "col_span) is simply ignored for a 'filter.select' child of one — there's " +
+      "nothing useful to set either way.",
   },
   col: {
     type: "number" as const,
@@ -63,8 +69,8 @@ const placementSchemaProperties = {
       "Explicit 1-based starting column. Omit this (and row) for ordinary " +
       "sequential layout — the grid auto-places the widget in the next available " +
       "cell based on col_span. Only set col/row for precise placement. Ignored if " +
-      "the parent is a 'tabs', 'tab', 'collapsible', 'carousel', or 'slide' widget " +
-      "— those have no grid to place into.",
+      "the parent is a 'tabs', 'tab', 'collapsible', 'carousel', 'slide', or " +
+      "'filter.bar' widget — none of those have a grid to place into.",
   },
   row: {
     type: "number" as const,
@@ -141,7 +147,9 @@ const addWidgetSchema = {
         "'collapsible' widget (to add its one child — meant to hold exactly one; " +
         "nothing stops you from adding a second, but the UI's own drag-and-drop " +
         "only allows one, so don't), a 'carousel' widget (to add another 'slide' " +
-        "child), or a 'slide' pane (to add content inside that slide).",
+        "child), a 'slide' pane (to add content inside that slide), or a " +
+        "'filter.bar' widget (to add another filter into it — a 'filter.select' " +
+        "child, same as any other widget_type).",
     },
     index: {
       type: "number" as const,
@@ -182,7 +190,22 @@ const addWidgetSchema = {
         "the user actually wants several alternative views switchable in the same spot " +
         "(e.g. 'Overview' vs. 'Detail'); reach for 'collapsible' instead when the user " +
         "wants one thing hidden by default and revealed on demand, not switched between " +
-        "several.",
+        "several. 'filter.bar' groups one or more dashboard filters into a single " +
+        "control strip — it holds no content of its own; add 'filter.select' children " +
+        "into it (parent_id = the filter.bar's id), one add_widget call per filter. Call " +
+        "get_widget_control_schema('filter.bar') for its own props (e.g. whether its " +
+        "filters lay out side by side or stacked) rather than assuming a field name or " +
+        "values. IMPORTANT: adding a filter bar is an ordinary add_widget call like any " +
+        "other widget — do NOT wrap it (or anything else) in a new 'canvas', and do NOT " +
+        "move or resize any existing widget to 'make room' for it. Add it as a normal " +
+        "child of the same parent the user is already looking at (e.g. index 0 of the " +
+        "root, so it appears first) with its own col_span/row_span (a bar meant to look " +
+        "like a stacked left/right rail still just needs its OWN row_span/col_span set " +
+        "large enough — e.g. a tall row_span and a small col_span — not a change to any " +
+        "other widget); every other existing widget keeps its current placement " +
+        "untouched. A user asking for a filter bar 'on the left' or 'on top' is " +
+        "describing this one widget's own position among its siblings, not " +
+        "asking for the rest of the dashboard to be restructured around it.",
     },
     ...placementSchemaProperties,
     ...containerSchemaProperties,
@@ -561,12 +584,33 @@ export default function useDashboardTools(): ClientTool[] {
           );
           if (dynamicKeyError) return dynamicKeyError;
 
+          // The one row_span default this generic tool still has to know
+          // about itself, rather than leaving to the widget's own schema: a
+          // filter is a compact single control, not a chart, so the bare
+          // "1 row track" default (visually a sliver) would clip most of it.
+          // Root-grid-only — on any flow parent ('tabs'/'tab'/'collapsible'/
+          // 'carousel'/'slide') row_span means a literal pixel height
+          // instead of a row-track count, so defaulting it there would
+          // render a 3px sliver rather than leaving the widget to flex and
+          // fill its container the way an unset row_span is meant to; a
+          // 'filter.bar' parent ignores row_span entirely for the same
+          // reason col_span is ignored there (see the schema's own note).
+          let rowSpan = input.row_span;
+          if (
+            rowSpan === undefined &&
+            (input.widget_type === "filter.select" ||
+              input.widget_type === "filter.bar") &&
+            dashboard.getNode(input.parent_id)?.type === "grid"
+          ) {
+            rowSpan = 3;
+          }
+
           try {
             const nodeId = dashboard.addWidget(input.parent_id, input.index, {
               type: input.widget_type,
               layout: {
                 colSpan: input.col_span,
-                rowSpan: input.row_span,
+                rowSpan,
                 col: input.col,
                 row: input.row,
                 columns: input.columns,
